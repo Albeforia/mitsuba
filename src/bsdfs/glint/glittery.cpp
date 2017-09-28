@@ -56,6 +56,7 @@ class Glittery : public BSDF
         SphericalTriangle tri1(Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, 1, 0));
         SphericalTriangle tri2(Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, -1, 0));
         SphericalTriangle tri3(Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, -1, 0));
+        // "0" is the id of root i.e. the hemisphere
         auto p0 = integrate(distr, tri0, "0", 0);
         auto p1 = integrate(distr, tri1, "0", 1);
         auto p2 = integrate(distr, tri2, "0", 2);
@@ -362,7 +363,7 @@ class Glittery : public BSDF
         if (error < 1e-5 || error / rule2 < 1e-5)
         {
             // we also store the result for 'uniform' triangles
-            // NOTE this will take much more memory
+            // NOTE this will take up much more memory
             integrations[id] = rule2;
             return rule2;
         }

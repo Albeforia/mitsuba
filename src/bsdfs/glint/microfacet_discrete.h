@@ -6,12 +6,20 @@
 #include <mitsuba/core/properties.h>
 #include <boost/algorithm/string.hpp>
 #include <queue>
+#include <array>
+#include "spherical_conic_section.h"
+
+#define inAABB(p, min, max) ((min).x <= (p).x && (p).x <= (max).x && (min).y <= (p).y && (p).y <= (max).y)
+#define inHalfPlane(p, p1, p2) (((p).x - (p2).x) * ((p1).y - (p2).y) - ((p1).x - (p2).x) * ((p).y - (p2).y) <= 0)
+#define inTriangle(p, p1, p2, p3) (inHalfPlane(p, p1, p2) && inHalfPlane(p, p2, p3) && inHalfPlane(p, p3, p1))
 
 MTS_NAMESPACE_BEGIN
 
 class DiscreteMicrofacetDistribution
 {
   public:
+    using Parallelogram = std::array<Vector2, 4>;
+
     /// Supported distribution types
     enum EType
     {
@@ -109,6 +117,11 @@ class DiscreteMicrofacetDistribution
         }
 
         m_sampleVisible = props.getBoolean("sampleVisible", sampleVisible);
+
+        // test
+        Node node(Point2(0, 0), Point2(1, 1), Vector(), Vector(), Vector(), 0);
+        auto paral = extentsToPoint(Vector2(4, 4), Vector2(0.5f, 0.5f), Vector2(0.5f, 0.5f));
+        node.intersect(paral);
     }
 
     /// Return the distribution type
@@ -167,6 +180,7 @@ class DiscreteMicrofacetDistribution
         Point2 center = its.uv;
         Point2 extentU(its.dudx, its.dvdx);
         Point2 extentV(its.dudy, its.dvdy);
+        // auto parallelogram = extentsToPoint(its.uv, Point2(its.dudx, its.dvdx), Point2(its.dudy, its.dvdy));
 
         Float cosTheta2 = Frame::cosTheta2(m);
         Float beckmannExponent = ((m.x * m.x) / (m_alphaU * m_alphaU) + (m.y * m.y) / (m_alphaV * m_alphaV)) / cosTheta2;
@@ -636,9 +650,20 @@ class DiscreteMicrofacetDistribution
     // for now we do the spatial-directional split in lock-step
     uint32_t countParticles() const
     {
-        // std::queue<Node> queue;
-
+        std::queue<Node> queue;
+        // queue.emplace(Point2(0, 0), Point2(1, 1), Vector(), Vector(), Vector(), 0);
         return 0;
+    }
+
+    /// Helper routine: get four points of a (2D)parallelogram from its center and extents
+    Parallelogram extentsToPoint(Vector2 center, Vector2 extentU, Vector2 extentV) const
+    {
+        Parallelogram points;
+        points[0] = center + extentU + extentV;
+        points[1] = center + extentU - extentV;
+        points[2] = center - extentU + extentV;
+        points[3] = center - extentU - extentV;
+        return points;
     }
 
   protected:
@@ -647,6 +672,55 @@ class DiscreteMicrofacetDistribution
     bool m_sampleVisible;
     Float m_exponentU, m_exponentV;
     uint32_t m_totalFacets;
+
+    struct Node
+    {
+        AABB2 m_spatial;
+        SphericalTriangle m_directional;
+        uint32_t m_count;
+
+        Node(){};
+
+        Node(AABB2::PointType min, AABB2::PointType max, Vector a, Vector b, Vector c, uint32_t count)
+            : m_spatial(min, max), m_directional(a, b, c), m_count{count} {}
+
+        // spatial overlapping test
+        bool intersect(const Parallelogram &paral) const
+        {
+            auto center = (m_spatial.min + m_spatial.max) * 0.5f;
+            auto extent = (m_spatial.max - m_spatial.min) * 0.5f;
+            AABB2::PointType aabb[]{
+                {center.x + extent.x, center.y + extent.y},
+                {center.x + extent.x, center.y - extent.y},
+                {center.x - extent.x, center.y + extent.y},
+                {center.x - extent.x, center.y - extent.y}};
+
+            if (inAABB(paral[0], m_spatial.min, m_spatial.max) ||
+                inAABB(paral[1], m_spatial.min, m_spatial.max) ||
+                inAABB(paral[2], m_spatial.min, m_spatial.max) ||
+                inAABB(paral[3], m_spatial.min, m_spatial.max))
+            {
+                return true;
+            }
+            // the parallelogram contains the aabb
+            // note the order of triangle vertices matter
+            else if ((inTriangle(aabb[0], paral[0], paral[1], paral[2]) || inTriangle(aabb[0], paral[2], paral[1], paral[3])) &&
+                     (inTriangle(aabb[1], paral[0], paral[1], paral[2]) || inTriangle(aabb[1], paral[2], paral[1], paral[3])) &&
+                     (inTriangle(aabb[2], paral[0], paral[1], paral[2]) || inTriangle(aabb[2], paral[2], paral[1], paral[3])) &&
+                     (inTriangle(aabb[3], paral[0], paral[1], paral[2]) || inTriangle(aabb[3], paral[2], paral[1], paral[3])))
+            {
+                return true;
+            }
+            // no overlap
+            else
+            {
+                return false;
+            }
+        }
+
+        // directional overlapping test
+        bool intersect(const SphericalConicSection &scs) const {}
+    };
 };
 
 MTS_NAMESPACE_END
