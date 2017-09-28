@@ -32,6 +32,57 @@ struct SphericalConicSection
     {
         return dot(C.preMult(m), m) <= 0;
     }
+
+    bool intersect(const SphericalTriangle &tri) const
+    {
+        // test if the three spherical arc intersects the spherical conic section
+        Vector c, d;
+        Float pa, pb, pc, axis;
+        for (int i = 0; i < 3; i++)
+        {
+            c = tri[i] + tri[(i + 1) % 3];
+            d = tri[i] - tri[(i + 1) % 3];
+            // quadratic form: a*t^2 + b*t + c = 0
+            pa = dot(C.preMult(d), d);
+            pb = 2 * dot(C.preMult(d), c);
+            pc = dot(C.preMult(c), c);
+            // true iff there is a root in [-1,1]
+            if ((pa - pb + pc) * (pa + pb + pc) < 0)
+            {
+                return true;
+            }
+            else
+            {
+                axis = -pb / (2 * pa);
+                if (axis < -1.0f || axis > 2.0f || pa * pc - pb * pb * 0.25f >= 0)
+                {
+                    continue;
+                }
+                else
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool overlap(const SphericalTriangle &tri) const
+    {
+        if (intersect(tri))
+        {
+            return true;
+        }
+        else
+        {
+            return isInside(tri[0]) && isInside(tri[1]) && isInside(tri[2]);
+        }
+    }
+
+    bool contain(const SphericalTriangle &tri) const
+    {
+        return !intersect(tri) && (isInside(tri[0]) && isInside(tri[1]) && isInside(tri[2]));
+    }
 };
 
 MTS_NAMESPACE_END

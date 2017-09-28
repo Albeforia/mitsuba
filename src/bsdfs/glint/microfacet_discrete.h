@@ -719,7 +719,10 @@ class DiscreteMicrofacetDistribution
         }
 
         // directional overlapping test
-        bool intersect(const SphericalConicSection &scs) const {}
+        bool intersect(const SphericalConicSection &scs) const
+        {
+            return scs.intersect(m_directional);
+        }
     };
 };
 
