@@ -684,44 +684,75 @@ class DiscreteMicrofacetDistribution
         Node(AABB2::PointType min, AABB2::PointType max, Vector a, Vector b, Vector c, uint32_t count)
             : m_spatial(min, max), m_directional(a, b, c), m_count{count} {}
 
-        // spatial overlapping test
         bool intersect(const Parallelogram &paral) const
         {
             auto center = (m_spatial.min + m_spatial.max) * 0.5f;
             auto extent = (m_spatial.max - m_spatial.min) * 0.5f;
-            AABB2::PointType aabb[]{
-                {center.x + extent.x, center.y + extent.y},
-                {center.x + extent.x, center.y - extent.y},
-                {center.x - extent.x, center.y + extent.y},
-                {center.x - extent.x, center.y - extent.y}};
 
-            if (inAABB(paral[0], m_spatial.min, m_spatial.max) ||
-                inAABB(paral[1], m_spatial.min, m_spatial.max) ||
-                inAABB(paral[2], m_spatial.min, m_spatial.max) ||
-                inAABB(paral[3], m_spatial.min, m_spatial.max))
+            // intersect four edges of parallelogram against the aabb
+            bool result = false;
+            for (int i = 0; i < 4; i++)
+            {
+                auto p = paral[i];
+                auto delta = paral[(i + 1) % 4] - p;
+                auto scaleX = 1.0f / delta.x, scaleY = 1.0f / delta.y;
+                int signX = scaleX < 0 ? -1 : 1, signY = scaleY < 0 ? -1 : 1;
+                auto nearTimeX = (center.x - signX * (extent.x) - p.x) * scaleX,
+                     nearTimeY = (center.y - signY * (extent.y) - p.y) * scaleY,
+                     farTimeX = (center.x + signX * (extent.x) - p.x) * scaleX,
+                     farTimeY = (center.y + signY * (extent.y) - p.y) * scaleY;
+                if (nearTimeX > farTimeY || nearTimeY > farTimeX)
+                {
+                    continue;
+                }
+                auto nearTime = std::max(nearTimeX, nearTimeY),
+                     farTime = std::min(farTimeX, farTimeY);
+                if (nearTime >= 1 || farTime <= 0)
+                {
+                    continue;
+                }
+                result = true;
+                break;
+            }
+
+            return result;
+        }
+
+        bool overlap(const Parallelogram &paral) const
+        {
+            if (intersect(paral))
             {
                 return true;
             }
-            // the parallelogram contains the aabb
-            // note the order of triangle vertices matter
-            else if ((inTriangle(aabb[0], paral[0], paral[1], paral[2]) || inTriangle(aabb[0], paral[2], paral[1], paral[3])) &&
-                     (inTriangle(aabb[1], paral[0], paral[1], paral[2]) || inTriangle(aabb[1], paral[2], paral[1], paral[3])) &&
-                     (inTriangle(aabb[2], paral[0], paral[1], paral[2]) || inTriangle(aabb[2], paral[2], paral[1], paral[3])) &&
-                     (inTriangle(aabb[3], paral[0], paral[1], paral[2]) || inTriangle(aabb[3], paral[2], paral[1], paral[3])))
-            {
-                return true;
-            }
-            // no overlap
             else
             {
-                return false;
+                // test if the parallelogram contains the aabb
+                auto center = (m_spatial.min + m_spatial.max) * 0.5f;
+                auto extent = (m_spatial.max - m_spatial.min) * 0.5f;
+                AABB2::PointType aabb[]{
+                    {center.x + extent.x, center.y + extent.y},
+                    {center.x + extent.x, center.y - extent.y},
+                    {center.x - extent.x, center.y + extent.y},
+                    {center.x - extent.x, center.y - extent.y}};
+                return (inAABB(paral[0], m_spatial.min, m_spatial.max) &&
+                        inAABB(paral[1], m_spatial.min, m_spatial.max) &&
+                        inAABB(paral[2], m_spatial.min, m_spatial.max) &&
+                        inAABB(paral[3], m_spatial.min, m_spatial.max)) ||
+                       ((inTriangle(aabb[0], paral[0], paral[1], paral[2]) || inTriangle(aabb[0], paral[2], paral[1], paral[3])) &&
+                        (inTriangle(aabb[1], paral[0], paral[1], paral[2]) || inTriangle(aabb[1], paral[2], paral[1], paral[3])) &&
+                        (inTriangle(aabb[2], paral[0], paral[1], paral[2]) || inTriangle(aabb[2], paral[2], paral[1], paral[3])) &&
+                        (inTriangle(aabb[3], paral[0], paral[1], paral[2]) || inTriangle(aabb[3], paral[2], paral[1], paral[3])))
             }
         }
 
-        // directional overlapping test
         bool intersect(const SphericalConicSection &scs) const
         {
             return scs.intersect(m_directional);
+        }
+
+        bool overlap(const SphericalConicSection &scs) const
+        {
+            return scs.overlap(m_directional);
         }
     };
 };

@@ -67,6 +67,11 @@ struct SphericalConicSection
         return false;
     }
 
+    bool contain(const SphericalTriangle &tri) const
+    {
+        return isInside(tri[0]) && isInside(tri[1]) && isInside(tri[2]);
+    }
+
     bool overlap(const SphericalTriangle &tri) const
     {
         if (intersect(tri))
@@ -75,13 +80,8 @@ struct SphericalConicSection
         }
         else
         {
-            return isInside(tri[0]) && isInside(tri[1]) && isInside(tri[2]);
+            return contain(tri);
         }
-    }
-
-    bool contain(const SphericalTriangle &tri) const
-    {
-        return !intersect(tri) && (isInside(tri[0]) && isInside(tri[1]) && isInside(tri[2]));
     }
 };
 
