@@ -1,4 +1,6 @@
 // https://gist.github.com/miki16g/8319640
+#if !defined(__MULTINOMIAL_H)
+#define __MULTINOMIAL_H
 
 #include <array>
 #include <boost/generator_iterator.hpp>
@@ -55,3 +57,5 @@ std::array<int, N> multinomial(int n, std::array<float, N> &pvals)
     }
     return sample;
 }
+
+#endif /* __MULTINOMIAL_H */

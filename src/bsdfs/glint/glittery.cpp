@@ -5,7 +5,6 @@
 #include "microfacet_discrete.h"
 #include "../ior.h"
 #include "spherical_triangle.h"
-#include "multinomial.h"
 
 MTS_NAMESPACE_BEGIN
 
@@ -57,11 +56,10 @@ class Glittery : public BSDF
         SphericalTriangle tri2(Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, -1, 0));
         SphericalTriangle tri3(Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, -1, 0));
         // "0" is the id of root i.e. the hemisphere
-        auto p0 = integrate(distr, tri0, "0", 0);
-        auto p1 = integrate(distr, tri1, "0", 1);
-        auto p2 = integrate(distr, tri2, "0", 2);
-        auto p3 = integrate(distr, tri3, "0", 3);
-        // normalize...
+        integrate(distr, tri0, "0", 0);
+        integrate(distr, tri1, "0", 1);
+        integrate(distr, tri2, "0", 2);
+        integrate(distr, tri3, "0", 3);
         SLog(EInfo, (std::string("Integration table entries: ") + std::to_string(integrations.size())).c_str());
     }
 
@@ -149,7 +147,7 @@ class Glittery : public BSDF
             m_sampleVisible);
 
         /* Evaluate the microfacet normal distribution */
-        const Float D = distr.eval(bRec);
+        const Float D = distr.eval(bRec, integrations);
         if (D == 0)
             return Spectrum(0.0f);
 
@@ -370,8 +368,7 @@ class Glittery : public BSDF
         else
         {
             Float rule3 = 0;
-            std::vector<SphericalTriangle> children(4);
-            tri.split(children);
+            auto children = tri.split();
             for (int i = 0; i < 4; i++)
             {
                 rule3 += integrate(distr, children[i], id, i);

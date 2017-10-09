@@ -6,12 +6,13 @@
 #include <mitsuba/core/properties.h>
 #include <boost/algorithm/string.hpp>
 #include <queue>
-#include <array>
 #include "spherical_conic_section.h"
+#include "multinomial.h"
 
 #define inAABB(p, min, max) ((min).x <= (p).x && (p).x <= (max).x && (min).y <= (p).y && (p).y <= (max).y)
 #define inHalfPlane(p, p1, p2) (((p).x - (p2).x) * ((p1).y - (p2).y) - ((p1).x - (p2).x) * ((p).y - (p2).y) <= 0)
 #define inTriangle(p, p1, p2, p3) (inHalfPlane(p, p1, p2) && inHalfPlane(p, p2, p3) && inHalfPlane(p, p3, p1))
+#define GAMMA_RADIUS 0.0056f
 
 MTS_NAMESPACE_BEGIN
 
@@ -117,11 +118,6 @@ class DiscreteMicrofacetDistribution
         }
 
         m_sampleVisible = props.getBoolean("sampleVisible", sampleVisible);
-
-        // test
-        Node node(Point2(0, 0), Point2(1, 1), Vector(), Vector(), Vector(), 0);
-        auto paral = extentsToPoint(Vector2(4, 4), Vector2(0.5f, 0.5f), Vector2(0.5f, 0.5f));
-        node.intersect(paral);
     }
 
     /// Return the distribution type
@@ -167,7 +163,7 @@ class DiscreteMicrofacetDistribution
     /**
 	 * \brief Evaluate the discrete microfacet distribution function
 	 */
-    inline Float eval(const BSDFSamplingRecord &bRec) const
+    inline Float eval(const BSDFSamplingRecord &bRec, const std::unordered_map<std::string, Float> &integrations) const
     {
         /* Calculate the reflection half-vector */
         Vector m = normalize(bRec.wo + bRec.wi);
@@ -177,29 +173,15 @@ class DiscreteMicrofacetDistribution
 
         // pixel footprint in texture space
         const auto &its = bRec.its;
-        Point2 center = its.uv;
-        Point2 extentU(its.dudx, its.dvdx);
-        Point2 extentV(its.dudy, its.dvdy);
-        // auto parallelogram = extentsToPoint(its.uv, Point2(its.dudx, its.dvdx), Point2(its.dudy, its.dvdy));
+        Vector2 center(its.uv.x, its.uv.y);
+        Vector2 extentX(its.dudx, its.dvdx);
+        Vector2 extentY(its.dudy, its.dvdy);
+        // TODO what's the right way to construct the parallelogram?
+        auto pixel = extentsToPoint(center, extentX, extentY);
 
-        Float cosTheta2 = Frame::cosTheta2(m);
-        Float beckmannExponent = ((m.x * m.x) / (m_alphaU * m_alphaU) + (m.y * m.y) / (m_alphaV * m_alphaV)) / cosTheta2;
+        SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
 
-        Float result;
-        switch (m_type)
-        {
-        case EBeckmann:
-        {
-            /* Beckmann distribution function for Gaussian random surfaces - [Walter 2005] evaluation */
-            result = math::fastexp(-beckmannExponent) /
-                     (M_PI * m_alphaU * m_alphaV * cosTheta2 * cosTheta2);
-        }
-        break;
-
-        default:
-            SLog(EError, "Invalid distribution type!");
-            return -1;
-        }
+        Float result = countParticles(pixel, scs, integrations) / static_cast<float>(m_totalFacets);
 
         /* Prevent potential numerical issues in other stages of the model */
         if (result * Frame::cosTheta(m) < 1e-20f)
@@ -648,21 +630,78 @@ class DiscreteMicrofacetDistribution
 
     // [Algorithm 1]
     // for now we do the spatial-directional split in lock-step
-    uint32_t countParticles() const
+    uint32_t countParticles(const Parallelogram &pixel, const SphericalConicSection &scs, const std::unordered_map<std::string, Float> &integrations) const
     {
+        uint32_t count = 0;
         std::queue<Node> queue;
-        // queue.emplace(Point2(0, 0), Point2(1, 1), Vector(), Vector(), Vector(), 0);
-        return 0;
+        Float p0 = integrations.at("00"),
+              p1 = integrations.at("01"),
+              p2 = integrations.at("02"),
+              p3 = integrations.at("03");
+        auto sum = p0 + p1 + p2 + p3;
+        auto root_counts = multinomial(m_totalFacets, std::array<float, 4>{p0 / sum, p1 / sum, p2 / sum, p3 / sum});
+        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, 1, 0), "00", root_counts[0]);
+        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, 1, 0), "01", root_counts[1]);
+        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, -1, 0), "02", root_counts[2]);
+        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, -1, 0), "03", root_counts[3]);
+        while (!queue.empty())
+        {
+            const auto &curr = queue.front();
+            auto overlapSpatial = curr.overlap(pixel);
+            auto overlapDirectional = curr.overlap(scs);
+            if (overlapSpatial == 0 || overlapDirectional == 0 || curr.m_count == 0)
+            {
+                queue.pop();
+            }
+            else if (overlapSpatial == 2 && overlapDirectional == 2)
+            {
+                count += curr.m_count;
+                queue.pop();
+            }
+            else
+            {
+                Float p0 = integrations.at(curr.m_triID + "0"),
+                      p1 = integrations.at(curr.m_triID + "1"),
+                      p2 = integrations.at(curr.m_triID + "2"),
+                      p3 = integrations.at(curr.m_triID + "3");
+                auto sum = 4 * (p0 + p1 + p2 + p3);
+                std::array<float, 16> pv{p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum};
+                auto counts = multinomial(curr.m_count, pv);
+
+                auto min = curr.m_spatial.min;
+                auto max = curr.m_spatial.max;
+                auto center = (min + max) * 0.5f;
+                auto children = curr.m_directional.split();
+                queue.emplace(min, center, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[0]);
+                queue.emplace(min, center, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[1]);
+                queue.emplace(min, center, children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[2]);
+                queue.emplace(min, center, children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[3]);
+                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[4]);
+                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[5]);
+                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[6]);
+                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[7]);
+                queue.emplace(center, max, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[8]);
+                queue.emplace(center, max, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[9]);
+                queue.emplace(center, max, children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[10]);
+                queue.emplace(center, max, children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[11]);
+                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[12]);
+                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[13]);
+                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[14]);
+                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[15]);
+                queue.pop();
+            }
+        }
+        return count;
     }
 
-    /// Helper routine: get four points of a (2D)parallelogram from its center and extents
-    Parallelogram extentsToPoint(Vector2 center, Vector2 extentU, Vector2 extentV) const
+    // get four points of a (2D)parallelogram from its center and extents
+    Parallelogram extentsToPoint(Vector2 center, Vector2 extentX, Vector2 extentY) const
     {
         Parallelogram points;
-        points[0] = center + extentU + extentV;
-        points[1] = center + extentU - extentV;
-        points[2] = center - extentU + extentV;
-        points[3] = center - extentU - extentV;
+        points[0] = center;
+        points[1] = points[0] + extentX;
+        points[3] = points[0] + extentY;
+        points[2] = points[1] + points[3];
         return points;
     }
 
@@ -677,20 +716,23 @@ class DiscreteMicrofacetDistribution
     {
         AABB2 m_spatial;
         SphericalTriangle m_directional;
+        std::string m_triID;
         uint32_t m_count;
 
         Node(){};
 
-        Node(AABB2::PointType min, AABB2::PointType max, Vector a, Vector b, Vector c, uint32_t count)
-            : m_spatial(min, max), m_directional(a, b, c), m_count{count} {}
+        Node(AABB2::PointType min, AABB2::PointType max, Vector a, Vector b, Vector c,
+             const std::string &triID, uint32_t count = 0)
+            : m_spatial(min, max), m_directional(a, b, c), m_triID(triID), m_count(count) {}
 
+        // this test include the case that aabb contains the parallelogram
         bool intersect(const Parallelogram &paral) const
         {
             auto center = (m_spatial.min + m_spatial.max) * 0.5f;
             auto extent = (m_spatial.max - m_spatial.min) * 0.5f;
 
             // intersect four edges of parallelogram against the aabb
-            bool result = false;
+            int result = 0;
             for (int i = 0; i < 4; i++)
             {
                 auto p = paral[i];
@@ -711,18 +753,18 @@ class DiscreteMicrofacetDistribution
                 {
                     continue;
                 }
-                result = true;
+                result++;
                 break;
             }
-
-            return result;
+            // SLog(EInfo, (std::string("intersect: ") + std::to_string(result)).c_str());
+            return result != 0;
         }
 
-        bool overlap(const Parallelogram &paral) const
+        int overlap(const Parallelogram &paral) const
         {
             if (intersect(paral))
             {
-                return true;
+                return 1;
             }
             else
             {
@@ -734,14 +776,16 @@ class DiscreteMicrofacetDistribution
                     {center.x + extent.x, center.y - extent.y},
                     {center.x - extent.x, center.y + extent.y},
                     {center.x - extent.x, center.y - extent.y}};
-                return (inAABB(paral[0], m_spatial.min, m_spatial.max) &&
-                        inAABB(paral[1], m_spatial.min, m_spatial.max) &&
-                        inAABB(paral[2], m_spatial.min, m_spatial.max) &&
-                        inAABB(paral[3], m_spatial.min, m_spatial.max)) ||
-                       ((inTriangle(aabb[0], paral[0], paral[1], paral[2]) || inTriangle(aabb[0], paral[2], paral[1], paral[3])) &&
-                        (inTriangle(aabb[1], paral[0], paral[1], paral[2]) || inTriangle(aabb[1], paral[2], paral[1], paral[3])) &&
-                        (inTriangle(aabb[2], paral[0], paral[1], paral[2]) || inTriangle(aabb[2], paral[2], paral[1], paral[3])) &&
-                        (inTriangle(aabb[3], paral[0], paral[1], paral[2]) || inTriangle(aabb[3], paral[2], paral[1], paral[3])))
+                // vertices should be in clockwise order
+                if ((inTriangle(aabb[0], paral[0], paral[2], paral[1]) || inTriangle(aabb[0], paral[0], paral[3], paral[2])) &&
+                    (inTriangle(aabb[1], paral[0], paral[2], paral[1]) || inTriangle(aabb[1], paral[0], paral[3], paral[2])) &&
+                    (inTriangle(aabb[2], paral[0], paral[2], paral[1]) || inTriangle(aabb[2], paral[0], paral[3], paral[2])) &&
+                    (inTriangle(aabb[3], paral[0], paral[2], paral[1]) || inTriangle(aabb[3], paral[0], paral[3], paral[2])))
+                {
+                    // SLog(EInfo, "overlap: aabb in parallelogram");
+                    return 2;
+                }
+                return 0;
             }
         }
 
@@ -750,7 +794,7 @@ class DiscreteMicrofacetDistribution
             return scs.intersect(m_directional);
         }
 
-        bool overlap(const SphericalConicSection &scs) const
+        int overlap(const SphericalConicSection &scs) const
         {
             return scs.overlap(m_directional);
         }

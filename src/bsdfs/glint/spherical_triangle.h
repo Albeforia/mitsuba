@@ -2,6 +2,7 @@
 #define __SPHERICAL_TRIANGLE_H
 
 #include <mitsuba/mitsuba.h>
+#include <array>
 
 MTS_NAMESPACE_BEGIN
 
@@ -50,9 +51,9 @@ struct SphericalTriangle
         return A + B + C - M_PI;
     }
 
-    void split(std::vector<SphericalTriangle> &children) const
+    std::array<SphericalTriangle, 4> split() const
     {
-        assert(children.size() >= 4);
+        std::array<SphericalTriangle, 4> children;
         Vector c0 = normalize(m_vertices[1] + m_vertices[2]);
         Vector c1 = normalize(m_vertices[0] + m_vertices[2]);
         Vector c2 = normalize(m_vertices[0] + m_vertices[1]);
@@ -68,6 +69,7 @@ struct SphericalTriangle
         children[3][0] = c0;
         children[3][1] = c1;
         children[3][2] = c2;
+        return children;
     }
 };
 
