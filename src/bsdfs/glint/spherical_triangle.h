@@ -34,15 +34,25 @@ struct SphericalTriangle
 
     Vector center() const
     {
-        return (m_vertices[0] + m_vertices[1] + m_vertices[2]) / 3;
+        return normalize((m_vertices[0] + m_vertices[1] + m_vertices[2]) / 3);
     }
 
-    // https://codegolf.stackexchange.com/questions/63870/spherical-excess-of-a-triangle
     Float excess() const
     {
         Float cosa = dot(m_vertices[1], m_vertices[2]),
               cosb = dot(m_vertices[0], m_vertices[2]),
               cosc = dot(m_vertices[0], m_vertices[1]);
+
+        if (1 - std::min(std::min(cosa, cosb), cosc) < 1e-3)
+        {
+            // excess is too small, treat as normal triangle
+            Float a = acosf(cosa),
+                  b = acosf(cosa),
+                  c = acosf(cosa);
+            Float s = (a + b + c) / 2;
+            Float area = sqrt(s * (s - a) * (s - b) * (s - c));
+            return area;
+        }
 
         Float A = acosf((cosa - cosb * cosc) / sqrt((1 - cosb * cosb) * (1 - cosc * cosc))),
               B = acosf((cosb - cosa * cosc) / sqrt((1 - cosa * cosa) * (1 - cosc * cosc))),

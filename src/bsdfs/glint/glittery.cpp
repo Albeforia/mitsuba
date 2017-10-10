@@ -51,16 +51,22 @@ class Glittery : public BSDF
             m_alphaV = new ConstantFloatTexture(distr.getAlphaV());
 
         // four spherical triangles corresponding to quadrants of the hemisphere
-        SphericalTriangle tri0(Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, 1, 0));
-        SphericalTriangle tri1(Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, 1, 0));
-        SphericalTriangle tri2(Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, -1, 0));
-        SphericalTriangle tri3(Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, -1, 0));
+        SphericalTriangle tri0(Vector(0, 0, 1), Vector(1, 0, 1e-3), Vector(0, 1, 1e-3));
+        SphericalTriangle tri1(Vector(0, 0, 1), Vector(-1, 0, 1e-3), Vector(0, 1, 1e-3));
+        SphericalTriangle tri2(Vector(0, 0, 1), Vector(1, 0, 1e-3), Vector(0, -1, 1e-3));
+        SphericalTriangle tri3(Vector(0, 0, 1), Vector(-1, 0, 1e-3), Vector(0, -1, 1e-3));
         // "0" is the id of root i.e. the hemisphere
         integrate(distr, tri0, "0", 0);
         integrate(distr, tri1, "0", 1);
         integrate(distr, tri2, "0", 2);
         integrate(distr, tri3, "0", 3);
         SLog(EInfo, (std::string("Integration table entries: ") + std::to_string(integrations.size())).c_str());
+
+        // test
+        auto pixel = distr.extentsToPoint(Vector2(0.5f, 0.5f), Vector2(0.1f, 0), Vector2(0, 0.1f));
+        SphericalConicSection scs(normalize(Vector(-1, 0, 1)), normalize(Vector(1, 0, 1)), 0.526f);
+        Float result = distr.countParticles(pixel, scs, integrations);
+        SLog(EInfo, (std::string("Test count: ") + std::to_string(result)).c_str());
     }
 
     Glittery(Stream *stream, InstanceManager *manager)
@@ -355,8 +361,11 @@ class Glittery : public BSDF
     {
         auto id = parentID + std::to_string(splitNumber);
 
-        Float rule1 = tri.excess() * distr.eval(tri.center());
-        Float rule2 = tri.excess() * (distr.eval(tri[0]) + distr.eval(tri[1]) + distr.eval(tri[2])) / 3;
+        Float excess = tri.excess();
+        if (excess == 0)
+            SLog(EWarn, (std::string("spherical triangle excess is 0: ") + id).c_str());
+        Float rule1 = excess * distr.eval(tri.center());
+        Float rule2 = excess * (distr.eval(tri[0]) + distr.eval(tri[1]) + distr.eval(tri[2])) / 3;
         Float error = std::abs(rule1 - rule2);
         if (error < 1e-5 || error / rule2 < 1e-5)
         {

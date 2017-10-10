@@ -12,7 +12,7 @@
 #define inAABB(p, min, max) ((min).x <= (p).x && (p).x <= (max).x && (min).y <= (p).y && (p).y <= (max).y)
 #define inHalfPlane(p, p1, p2) (((p).x - (p2).x) * ((p1).y - (p2).y) - ((p1).x - (p2).x) * ((p).y - (p2).y) <= 0)
 #define inTriangle(p, p1, p2, p3) (inHalfPlane(p, p1, p2) && inHalfPlane(p, p2, p3) && inHalfPlane(p, p3, p1))
-#define GAMMA_RADIUS 0.0056f
+#define GAMMA_RADIUS 0.0175f
 
 MTS_NAMESPACE_BEGIN
 
@@ -225,6 +225,70 @@ class DiscreteMicrofacetDistribution
             result = 0;
 
         return result;
+    }
+
+    // [Algorithm 1]
+    // for now we do the spatial-directional split in lock-step
+    uint32_t countParticles(const Parallelogram &pixel, const SphericalConicSection &scs, const std::unordered_map<std::string, Float> &integrations) const
+    {
+        uint32_t count = 0;
+        std::queue<Node> queue;
+        Float p0 = integrations.at("00"),
+              p1 = integrations.at("01"),
+              p2 = integrations.at("02"),
+              p3 = integrations.at("03");
+        auto sum = p0 + p1 + p2 + p3;
+        auto root_counts = multinomial(m_totalFacets, std::array<float, 4>{p0 / sum, p1 / sum, p2 / sum, p3 / sum});
+        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, 1, 0), "00", root_counts[0]);
+        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, 1, 0), "01", root_counts[1]);
+        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, -1, 0), "02", root_counts[2]);
+        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, -1, 0), "03", root_counts[3]);
+        while (!queue.empty())
+        {
+            const auto &curr = queue.front();
+            auto overlapSpatial = curr.overlap(pixel);
+            auto overlapDirectional = curr.overlap(scs);
+            if (overlapSpatial == 0 || overlapDirectional == 0 || curr.m_count == 0)
+            {
+            }
+            else if (overlapSpatial == 2 && overlapDirectional == 2)
+            {
+                count += curr.m_count;
+            }
+            else
+            {
+                Float p0 = integrations.count(curr.m_triID + "0") == 0 ? 0 : integrations.at(curr.m_triID + "0");
+                Float p1 = integrations.count(curr.m_triID + "1") == 0 ? 0 : integrations.at(curr.m_triID + "1");
+                Float p2 = integrations.count(curr.m_triID + "2") == 0 ? 0 : integrations.at(curr.m_triID + "2");
+                Float p3 = integrations.count(curr.m_triID + "3") == 0 ? 0 : integrations.at(curr.m_triID + "3");
+                auto sum = 4 * (p0 + p1 + p2 + p3);
+                std::array<float, 16> pv{p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum};
+                auto counts = multinomial(curr.m_count, pv);
+
+                auto min = curr.m_spatial.min;
+                auto max = curr.m_spatial.max;
+                auto center = (min + max) * 0.5f;
+                auto children = curr.m_directional.split();
+                queue.emplace(min, center, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[0]);
+                queue.emplace(min, center, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[1]);
+                queue.emplace(min, center, children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[2]);
+                queue.emplace(min, center, children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[3]);
+                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[4]);
+                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[5]);
+                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[6]);
+                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[7]);
+                queue.emplace(center, max, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[8]);
+                queue.emplace(center, max, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[9]);
+                queue.emplace(center, max, children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[10]);
+                queue.emplace(center, max, children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[11]);
+                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[12]);
+                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[13]);
+                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[14]);
+                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[15]);
+            }
+            queue.pop();
+        }
+        return count;
     }
 
     /**
@@ -628,72 +692,7 @@ class DiscreteMicrofacetDistribution
         exponent = m_exponentU * cosPhi * cosPhi + m_exponentV * sinPhi * sinPhi;
     }
 
-    // [Algorithm 1]
-    // for now we do the spatial-directional split in lock-step
-    uint32_t countParticles(const Parallelogram &pixel, const SphericalConicSection &scs, const std::unordered_map<std::string, Float> &integrations) const
-    {
-        uint32_t count = 0;
-        std::queue<Node> queue;
-        Float p0 = integrations.at("00"),
-              p1 = integrations.at("01"),
-              p2 = integrations.at("02"),
-              p3 = integrations.at("03");
-        auto sum = p0 + p1 + p2 + p3;
-        auto root_counts = multinomial(m_totalFacets, std::array<float, 4>{p0 / sum, p1 / sum, p2 / sum, p3 / sum});
-        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, 1, 0), "00", root_counts[0]);
-        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, 1, 0), "01", root_counts[1]);
-        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, -1, 0), "02", root_counts[2]);
-        queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, -1, 0), "03", root_counts[3]);
-        while (!queue.empty())
-        {
-            const auto &curr = queue.front();
-            auto overlapSpatial = curr.overlap(pixel);
-            auto overlapDirectional = curr.overlap(scs);
-            if (overlapSpatial == 0 || overlapDirectional == 0 || curr.m_count == 0)
-            {
-                queue.pop();
-            }
-            else if (overlapSpatial == 2 && overlapDirectional == 2)
-            {
-                count += curr.m_count;
-                queue.pop();
-            }
-            else
-            {
-                Float p0 = integrations.at(curr.m_triID + "0"),
-                      p1 = integrations.at(curr.m_triID + "1"),
-                      p2 = integrations.at(curr.m_triID + "2"),
-                      p3 = integrations.at(curr.m_triID + "3");
-                auto sum = 4 * (p0 + p1 + p2 + p3);
-                std::array<float, 16> pv{p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum};
-                auto counts = multinomial(curr.m_count, pv);
-
-                auto min = curr.m_spatial.min;
-                auto max = curr.m_spatial.max;
-                auto center = (min + max) * 0.5f;
-                auto children = curr.m_directional.split();
-                queue.emplace(min, center, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[0]);
-                queue.emplace(min, center, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[1]);
-                queue.emplace(min, center, children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[2]);
-                queue.emplace(min, center, children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[3]);
-                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[4]);
-                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[5]);
-                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[6]);
-                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[7]);
-                queue.emplace(center, max, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[8]);
-                queue.emplace(center, max, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[9]);
-                queue.emplace(center, max, children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[10]);
-                queue.emplace(center, max, children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[11]);
-                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[12]);
-                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[13]);
-                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[14]);
-                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[15]);
-                queue.pop();
-            }
-        }
-        return count;
-    }
-
+  public: // debug
     // get four points of a (2D)parallelogram from its center and extents
     Parallelogram extentsToPoint(Vector2 center, Vector2 extentX, Vector2 extentY) const
     {
