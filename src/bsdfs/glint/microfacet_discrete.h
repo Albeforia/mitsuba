@@ -12,7 +12,7 @@
 #define inAABB(p, min, max) ((min).x <= (p).x && (p).x <= (max).x && (min).y <= (p).y && (p).y <= (max).y)
 #define inHalfPlane(p, p1, p2) (((p).x - (p2).x) * ((p1).y - (p2).y) - ((p1).x - (p2).x) * ((p).y - (p2).y) <= 0)
 #define inTriangle(p, p1, p2, p3) (inHalfPlane(p, p1, p2) && inHalfPlane(p, p2, p3) && inHalfPlane(p, p3, p1))
-#define GAMMA_RADIUS 0.0175f
+#define GAMMA_RADIUS 0.0873f
 
 MTS_NAMESPACE_BEGIN
 
@@ -174,13 +174,17 @@ class DiscreteMicrofacetDistribution
         // pixel footprint in texture space
         const auto &its = bRec.its;
         Vector2 center(its.uv.x, its.uv.y);
-        Vector2 extentX(its.dudx, its.dvdx);
-        Vector2 extentY(its.dudy, its.dvdy);
-        // TODO what's the right way to construct the parallelogram?
-        auto pixel = extentsToPoint(center, extentX, extentY);
+        Vector2 extentU(its.dudx, its.dvdx);
+        Vector2 extentV(its.dudy, its.dvdy);
 
+        // no differentials are specified, reverts back to the smooth case
+        if (extentU.isZero() || extentV.isZero())
+        {
+            return eval(m);
+        }
+
+        auto pixel = extentsToPoint(center, extentU, extentV);
         SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
-
         Float result = countParticles(pixel, scs, integrations) / static_cast<float>(m_totalFacets);
 
         /* Prevent potential numerical issues in other stages of the model */
@@ -694,13 +698,13 @@ class DiscreteMicrofacetDistribution
 
   public: // debug
     // get four points of a (2D)parallelogram from its center and extents
-    Parallelogram extentsToPoint(Vector2 center, Vector2 extentX, Vector2 extentY) const
+    Parallelogram extentsToPoint(Vector2 center, Vector2 extentU, Vector2 extentV) const
     {
         Parallelogram points;
-        points[0] = center;
-        points[1] = points[0] + extentX;
-        points[3] = points[0] + extentY;
-        points[2] = points[1] + points[3];
+        points[0] = center + extentU + extentV;
+        points[1] = center - extentU + extentV;
+        points[2] = center - extentU - extentV;
+        points[3] = center + extentU - extentV;
         return points;
     }
 
@@ -761,31 +765,30 @@ class DiscreteMicrofacetDistribution
 
         int overlap(const Parallelogram &paral) const
         {
+            // test if the parallelogram contains the aabb
+            auto center = (m_spatial.min + m_spatial.max) * 0.5f;
+            auto extent = (m_spatial.max - m_spatial.min) * 0.5f;
+            AABB2::PointType aabb[]{
+                {center.x + extent.x, center.y + extent.y},
+                {center.x + extent.x, center.y - extent.y},
+                {center.x - extent.x, center.y + extent.y},
+                {center.x - extent.x, center.y - extent.y}};
+            // vertices should be in clockwise order
+            if ((inTriangle(aabb[0], paral[0], paral[2], paral[1]) || inTriangle(aabb[0], paral[0], paral[3], paral[2])) &&
+                (inTriangle(aabb[1], paral[0], paral[2], paral[1]) || inTriangle(aabb[1], paral[0], paral[3], paral[2])) &&
+                (inTriangle(aabb[2], paral[0], paral[2], paral[1]) || inTriangle(aabb[2], paral[0], paral[3], paral[2])) &&
+                (inTriangle(aabb[3], paral[0], paral[2], paral[1]) || inTriangle(aabb[3], paral[0], paral[3], paral[2])))
+            {
+                // SLog(EInfo, "overlap: aabb is inside the parallelogram");
+                return 2;
+            }
+
             if (intersect(paral))
             {
                 return 1;
             }
-            else
-            {
-                // test if the parallelogram contains the aabb
-                auto center = (m_spatial.min + m_spatial.max) * 0.5f;
-                auto extent = (m_spatial.max - m_spatial.min) * 0.5f;
-                AABB2::PointType aabb[]{
-                    {center.x + extent.x, center.y + extent.y},
-                    {center.x + extent.x, center.y - extent.y},
-                    {center.x - extent.x, center.y + extent.y},
-                    {center.x - extent.x, center.y - extent.y}};
-                // vertices should be in clockwise order
-                if ((inTriangle(aabb[0], paral[0], paral[2], paral[1]) || inTriangle(aabb[0], paral[0], paral[3], paral[2])) &&
-                    (inTriangle(aabb[1], paral[0], paral[2], paral[1]) || inTriangle(aabb[1], paral[0], paral[3], paral[2])) &&
-                    (inTriangle(aabb[2], paral[0], paral[2], paral[1]) || inTriangle(aabb[2], paral[0], paral[3], paral[2])) &&
-                    (inTriangle(aabb[3], paral[0], paral[2], paral[1]) || inTriangle(aabb[3], paral[0], paral[3], paral[2])))
-                {
-                    // SLog(EInfo, "overlap: aabb in parallelogram");
-                    return 2;
-                }
-                return 0;
-            }
+
+            return 0;
         }
 
         bool intersect(const SphericalConicSection &scs) const

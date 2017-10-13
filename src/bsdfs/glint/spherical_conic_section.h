@@ -74,13 +74,13 @@ struct SphericalConicSection
 
     int overlap(const SphericalTriangle &tri) const
     {
-        if (intersect(tri))
-        {
-            return 1;
-        }
-        else if (contain(tri))
+        if (contain(tri))
         {
             return 2;
+        }
+        else if (intersect(tri))
+        {
+            return 1;
         }
         else
         {
