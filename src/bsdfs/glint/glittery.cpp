@@ -4,7 +4,9 @@
 #include <unordered_map>
 #include "microfacet_discrete.h"
 #include "../ior.h"
-#include "spherical_triangle.h"
+
+#define triangleArea(p0, p1, p2) (std::abs((p0).x * ((p1).y - (p2).y) + (p1).x * ((p2).y - (p0).y) + (p2).x * ((p0).y - (p1).y)) / 2.0f)
+#define GAMMA_RADIUS 0.0873f
 
 MTS_NAMESPACE_BEGIN
 
@@ -61,12 +63,6 @@ class Glittery : public BSDF
         integrate(distr, tri2, "0", 2);
         integrate(distr, tri3, "0", 3);
         SLog(EInfo, (std::string("Integration table entries: ") + std::to_string(integrations.size())).c_str());
-
-        // test
-        auto pixel = distr.extentsToPoint(Vector2(0.5f, 0.5f), Vector2(0.1f, 0), Vector2(0, 0.1f));
-        SphericalConicSection scs(normalize(Vector(-1, 0, 1)), normalize(Vector(1, 0, 1)), 0.526f);
-        Float result = distr.countParticles(pixel, scs, integrations);
-        SLog(EInfo, (std::string("Test count: ") + std::to_string(result)).c_str());
     }
 
     Glittery(Stream *stream, InstanceManager *manager)
@@ -153,7 +149,21 @@ class Glittery : public BSDF
             m_sampleVisible);
 
         /* Evaluate the microfacet normal distribution */
-        const Float D = distr.eval(bRec, integrations);
+        Float D;
+        // pixel footprint in texture space
+        const auto &its = bRec.its;
+        Vector2 center(its.uv.x, its.uv.y);
+        Vector2 extentU(its.dudx, its.dvdx);
+        Vector2 extentV(its.dudy, its.dvdy);
+        // no differentials are specified, reverts back to the smooth case
+        if (extentU.isZero() || extentV.isZero())
+        {
+            D = distr.eval(H);
+        }
+
+        auto pixel = extentsToPoint(center, extentU, extentV);
+        SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
+        D = distr.eval(H, pixel, scs, integrations);
         if (D == 0)
             return Spectrum(0.0f);
 
@@ -165,7 +175,8 @@ class Glittery : public BSDF
         const Float G = distr.G(bRec.wi, bRec.wo, H);
 
         /* Calculate the total amount of reflection */
-        Float model = D * G / (4.0f * Frame::cosTheta(bRec.wi));
+        Float model = dot(bRec.wi, H) * D * G /
+                      ((triangleArea(pixel[0], pixel[2], pixel[1]) * 2) * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
 
         return F * model;
     }
@@ -385,6 +396,17 @@ class Glittery : public BSDF
             integrations[id] = rule3;
             return rule3;
         }
+    }
+
+    // get four points of a (2D)parallelogram from its center and extents
+    Parallelogram extentsToPoint(Vector2 center, Vector2 extentU, Vector2 extentV) const
+    {
+        Parallelogram points;
+        points[0] = center + extentU + extentV;
+        points[1] = center - extentU + extentV;
+        points[2] = center - extentU - extentV;
+        points[3] = center + extentU - extentV;
+        return points;
     }
 };
 

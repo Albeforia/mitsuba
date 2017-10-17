@@ -12,15 +12,14 @@
 #define inAABB(p, min, max) ((min).x <= (p).x && (p).x <= (max).x && (min).y <= (p).y && (p).y <= (max).y)
 #define inHalfPlane(p, p1, p2) (((p).x - (p2).x) * ((p1).y - (p2).y) - ((p1).x - (p2).x) * ((p).y - (p2).y) <= 0)
 #define inTriangle(p, p1, p2, p3) (inHalfPlane(p, p1, p2) && inHalfPlane(p, p2, p3) && inHalfPlane(p, p3, p1))
-#define GAMMA_RADIUS 0.0873f
 
 MTS_NAMESPACE_BEGIN
+
+using Parallelogram = std::array<Vector2, 4>;
 
 class DiscreteMicrofacetDistribution
 {
   public:
-    using Parallelogram = std::array<Vector2, 4>;
-
     /// Supported distribution types
     enum EType
     {
@@ -163,28 +162,13 @@ class DiscreteMicrofacetDistribution
     /**
 	 * \brief Evaluate the discrete microfacet distribution function
 	 */
-    inline Float eval(const BSDFSamplingRecord &bRec, const std::unordered_map<std::string, Float> &integrations) const
+    inline Float eval(const Vector &m,
+                      const Parallelogram &pixel, const SphericalConicSection &scs,
+                      const std::unordered_map<std::string, Float> &integrations) const
     {
-        /* Calculate the reflection half-vector */
-        Vector m = normalize(bRec.wo + bRec.wi);
-
         if (Frame::cosTheta(m) <= 0)
             return 0.0f;
 
-        // pixel footprint in texture space
-        const auto &its = bRec.its;
-        Vector2 center(its.uv.x, its.uv.y);
-        Vector2 extentU(its.dudx, its.dvdx);
-        Vector2 extentV(its.dudy, its.dvdy);
-
-        // no differentials are specified, reverts back to the smooth case
-        if (extentU.isZero() || extentV.isZero())
-        {
-            return eval(m);
-        }
-
-        auto pixel = extentsToPoint(center, extentU, extentV);
-        SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
         Float result = countParticles(pixel, scs, integrations) / static_cast<float>(m_totalFacets);
 
         /* Prevent potential numerical issues in other stages of the model */
@@ -232,7 +216,6 @@ class DiscreteMicrofacetDistribution
     }
 
     // [Algorithm 1]
-    // for now we do the spatial-directional split in lock-step
     uint32_t countParticles(const Parallelogram &pixel, const SphericalConicSection &scs, const std::unordered_map<std::string, Float> &integrations) const
     {
         uint32_t count = 0;
@@ -261,34 +244,33 @@ class DiscreteMicrofacetDistribution
             }
             else
             {
-                Float p0 = integrations.count(curr.m_triID + "0") == 0 ? 0 : integrations.at(curr.m_triID + "0");
-                Float p1 = integrations.count(curr.m_triID + "1") == 0 ? 0 : integrations.at(curr.m_triID + "1");
-                Float p2 = integrations.count(curr.m_triID + "2") == 0 ? 0 : integrations.at(curr.m_triID + "2");
-                Float p3 = integrations.count(curr.m_triID + "3") == 0 ? 0 : integrations.at(curr.m_triID + "3");
-                auto sum = 4 * (p0 + p1 + p2 + p3);
-                std::array<float, 16> pv{p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum, p0 / sum, p1 / sum, p2 / sum, p3 / sum};
-                auto counts = multinomial(curr.m_count, pv);
-
-                auto min = curr.m_spatial.min;
-                auto max = curr.m_spatial.max;
-                auto center = (min + max) * 0.5f;
-                auto children = curr.m_directional.split();
-                queue.emplace(min, center, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[0]);
-                queue.emplace(min, center, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[1]);
-                queue.emplace(min, center, children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[2]);
-                queue.emplace(min, center, children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[3]);
-                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[4]);
-                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[5]);
-                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[6]);
-                queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[7]);
-                queue.emplace(center, max, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[8]);
-                queue.emplace(center, max, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[9]);
-                queue.emplace(center, max, children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[10]);
-                queue.emplace(center, max, children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[11]);
-                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[12]);
-                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[13]);
-                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[14]);
-                queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[15]);
+                if (overlapDirectional == 2)
+                {
+                    std::array<float, 4> pv{0.25f, 0.25f, 0.25f, 0.25f};
+                    auto counts = multinomial(curr.m_count, pv);
+                    auto min = curr.m_spatial.min;
+                    auto max = curr.m_spatial.max;
+                    auto center = (min + max) * 0.5f;
+                    queue.emplace(min, center, curr.m_directional[0], curr.m_directional[1], curr.m_directional[2], curr.m_triID, counts[0]);
+                    queue.emplace(Point2(center.x, min.y), Point2(max.x, center.y), curr.m_directional[0], curr.m_directional[1], curr.m_directional[2], curr.m_triID, counts[1]);
+                    queue.emplace(center, max, curr.m_directional[0], curr.m_directional[1], curr.m_directional[2], curr.m_triID, counts[2]);
+                    queue.emplace(Point2(min.x, center.y), Point2(center.x, max.y), curr.m_directional[0], curr.m_directional[1], curr.m_directional[2], curr.m_triID, counts[3]);
+                }
+                else
+                {
+                    Float p0 = integrations.count(curr.m_triID + "0") == 0 ? 0 : integrations.at(curr.m_triID + "0");
+                    Float p1 = integrations.count(curr.m_triID + "1") == 0 ? 0 : integrations.at(curr.m_triID + "1");
+                    Float p2 = integrations.count(curr.m_triID + "2") == 0 ? 0 : integrations.at(curr.m_triID + "2");
+                    Float p3 = integrations.count(curr.m_triID + "3") == 0 ? 0 : integrations.at(curr.m_triID + "3");
+                    auto sum = p0 + p1 + p2 + p3;
+                    std::array<float, 4> pv{p0 / sum, p1 / sum, p2 / sum, p3 / sum};
+                    auto counts = multinomial(curr.m_count, pv);
+                    auto children = curr.m_directional.split();
+                    queue.emplace(curr.m_spatial.min, curr.m_spatial.max, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[0]);
+                    queue.emplace(curr.m_spatial.min, curr.m_spatial.max, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[1]);
+                    queue.emplace(curr.m_spatial.min, curr.m_spatial.max, children[2][0], children[2][1], children[2][2], curr.m_triID + "2", counts[2]);
+                    queue.emplace(curr.m_spatial.min, curr.m_spatial.max, children[3][0], children[3][1], children[3][2], curr.m_triID + "3", counts[3]);
+                }
             }
             queue.pop();
         }
@@ -694,18 +676,6 @@ class DiscreteMicrofacetDistribution
         math::sincos(phi, &sinPhi, &cosPhi);
         /* Return the interpolated roughness */
         exponent = m_exponentU * cosPhi * cosPhi + m_exponentV * sinPhi * sinPhi;
-    }
-
-  public: // debug
-    // get four points of a (2D)parallelogram from its center and extents
-    Parallelogram extentsToPoint(Vector2 center, Vector2 extentU, Vector2 extentV) const
-    {
-        Parallelogram points;
-        points[0] = center + extentU + extentV;
-        points[1] = center - extentU + extentV;
-        points[2] = center - extentU - extentV;
-        points[3] = center + extentU - extentV;
-        return points;
     }
 
   protected:
