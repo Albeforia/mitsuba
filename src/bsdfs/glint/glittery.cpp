@@ -155,15 +155,18 @@ class Glittery : public BSDF
         Vector2 center(its.uv.x, its.uv.y);
         Vector2 extentU(its.dudx, its.dvdx);
         Vector2 extentV(its.dudy, its.dvdy);
+        auto pixel = extentsToPoint(center, extentU, extentV);
         // no differentials are specified, reverts back to the smooth case
         if (extentU.isZero() || extentV.isZero())
         {
             D = distr.eval(H);
         }
+        else
+        {
+            SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
+            D = distr.eval(H, pixel, scs, integrations);
+        }
 
-        auto pixel = extentsToPoint(center, extentU, extentV);
-        SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
-        D = distr.eval(H, pixel, scs, integrations);
         if (D == 0)
             return Spectrum(0.0f);
 
