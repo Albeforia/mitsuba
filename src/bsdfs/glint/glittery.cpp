@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include "microfacet_discrete.h"
 #include "../ior.h"
+#include "../IridescentMicrofacet.h"
 
 #define triangleArea(p0, p1, p2) (std::abs((p0).x * ((p1).y - (p2).y) + (p1).x * ((p2).y - (p0).y) + (p2).x * ((p0).y - (p1).y)) / 2.0f)
 #define GAMMA_RADIUS 0.0873f
@@ -15,6 +16,25 @@ class Glittery : public BSDF
   public:
     Glittery(const Properties &props) : BSDF(props)
     {
+        // Switch between spectral antialiasing 'true' or simple RGB
+        // rendering using three wavelength.
+        m_spectralAntialiasing = props.getBoolean("spectralAntialiasing", true);
+        m_useGaussianFit = props.getBoolean("useGaussianFit", true);
+
+        // We need to regenerate the vector of wavelengths corresponding
+        // to the discretization of light. For the special case of RGB
+        // rendering, we use the mode of each componnent.
+#if SPECTRUM_SAMPLES == 3
+        Float wavelengths[SPECTRUM_SAMPLES] = {580.0, 550.0, 450.0};
+#else
+        Float wavelengths[SPECTRUM_SAMPLES];
+        for (int i = 0; i < SPECTRUM_SAMPLES; ++i)
+        {
+            wavelengths[i] = SPECTRUM_MIN_WAVELENGTH + i * (SPECTRUM_MAX_WAVELENGTH - SPECTRUM_MIN_WAVELENGTH) / Float(SPECTRUM_SAMPLES - 1);
+        }
+#endif
+        m_wavelengths = Spectrum(wavelengths);
+
         ref<FileResolver> fResolver = Thread::getThread()->getFileResolver();
 
         m_specularReflectance = new ConstantSpectrumTexture(
@@ -30,16 +50,40 @@ class Glittery : public BSDF
         }
         else
         {
-            intEta.fromContinuousSpectrum(InterpolatedSpectrum(
-                fResolver->resolve("data/ior/" + materialName + ".eta.spd")));
-            intK.fromContinuousSpectrum(InterpolatedSpectrum(
-                fResolver->resolve("data/ior/" + materialName + ".k.spd")));
+#if SPECTRUM_SAMPLES == 3
+            if (m_spectralAntialiasing)
+            {
+                intEta = fromContinuousSpectrum(InterpolatedSpectrum(
+                                                    fResolver->resolve("data/ior/" + materialName + ".eta.spd")),
+                                                m_wavelengths);
+                intK = fromContinuousSpectrum(InterpolatedSpectrum(
+                                                  fResolver->resolve("data/ior/" + materialName + ".k.spd")),
+                                              m_wavelengths);
+            }
+            else
+            {
+#endif
+                intEta.fromContinuousSpectrum(InterpolatedSpectrum(
+                    fResolver->resolve("data/ior/" + materialName + ".eta.spd")));
+                intK.fromContinuousSpectrum(InterpolatedSpectrum(
+                    fResolver->resolve("data/ior/" + materialName + ".k.spd")));
+#if SPECTRUM_SAMPLES == 3
+            }
+#endif
         }
 
-        Float extEta = lookupIOR(props, "extEta", "air");
+        // Height of the layer in nanometers
+        m_height = new ConstantSpectrumTexture(
+            props.getSpectrum("height", Spectrum(400.0f)));
 
-        m_eta = props.getSpectrum("eta", intEta) / extEta;
-        m_k = props.getSpectrum("k", intK) / extEta;
+        Float extEta = lookupIOR(props, "extEta", "air");
+        m_eta1 = Spectrum(extEta);
+        Float filmEta = lookupIOR(props, "filmIOR", "air");
+
+        m_eta = props.getSpectrum("eta", intEta);
+        // m_k = props.getSpectrum("k", intK);
+        m_k = new ConstantSpectrumTexture(props.getSpectrum("k", intK));
+        m_eta2 = props.getSpectrum("filmEta", Spectrum(filmEta));
 
         DiscreteMicrofacetDistribution distr(props);
         m_type = distr.getType();
@@ -74,7 +118,7 @@ class Glittery : public BSDF
         m_alphaV = static_cast<Texture *>(manager->getInstance(stream));
         m_specularReflectance = static_cast<Texture *>(manager->getInstance(stream));
         m_eta = Spectrum(stream);
-        m_k = Spectrum(stream);
+        // m_k = Spectrum(stream);
 
         configure();
     }
@@ -89,7 +133,7 @@ class Glittery : public BSDF
         manager->serialize(stream, m_alphaV.get());
         manager->serialize(stream, m_specularReflectance.get());
         m_eta.serialize(stream);
-        m_k.serialize(stream);
+        // m_k.serialize(stream);
     }
 
     void configure()
@@ -99,7 +143,8 @@ class Glittery : public BSDF
             extraFlags |= EAnisotropic;
 
         if (!m_alphaU->isConstant() || !m_alphaV->isConstant() ||
-            !m_specularReflectance->isConstant())
+            !m_specularReflectance->isConstant() ||
+            !m_k->isConstant() || !m_height->isConstant())
             extraFlags |= ESpatiallyVarying;
 
         m_components.clear();
@@ -170,9 +215,14 @@ class Glittery : public BSDF
         if (D == 0)
             return Spectrum(0.0f);
 
-        /* Fresnel factor */
-        const Spectrum F = fresnelConductorExact(dot(bRec.wi, H), m_eta, m_k) *
-                           m_specularReflectance->eval(bRec.its);
+        /* Iridescent Fresnel factor */
+        const Spectrum h = m_height->eval(bRec.its);
+        const Spectrum k = m_k->eval(bRec.its);
+#if SPECTRUM_SAMPLES == 3
+        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, H), m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit) * m_specularReflectance->eval(bRec.its);
+#else
+        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, H), m_eta1, m_eta2, m_eta, k, m_wavelengths) * m_specularReflectance->eval(bRec.its);
+#endif
 
         /* Smith's shadow-masking function */
         const Float G = distr.G(bRec.wi, bRec.wo, H);
@@ -244,9 +294,14 @@ class Glittery : public BSDF
         if (Frame::cosTheta(bRec.wo) <= 0)
             return Spectrum(0.0f);
 
-        Spectrum F = fresnelConductorExact(dot(bRec.wi, m),
-                                           m_eta, m_k) *
-                     m_specularReflectance->eval(bRec.its);
+        // Iridescent F
+        const Spectrum h = m_height->eval(bRec.its);
+        const Spectrum k = m_k->eval(bRec.its);
+#if SPECTRUM_SAMPLES == 3
+        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit) * m_specularReflectance->eval(bRec.its);
+#else
+        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths) * m_specularReflectance->eval(bRec.its);
+#endif
 
         Float D;
         // pixel footprint in texture space
@@ -313,9 +368,14 @@ class Glittery : public BSDF
         if (Frame::cosTheta(bRec.wo) <= 0)
             return Spectrum(0.0f);
 
-        Spectrum F = fresnelConductorExact(dot(bRec.wi, m),
-                                           m_eta, m_k) *
-                     m_specularReflectance->eval(bRec.its);
+        // Iridescent F
+        const Spectrum h = m_height->eval(bRec.its);
+        const Spectrum k = m_k->eval(bRec.its);
+#if SPECTRUM_SAMPLES == 3
+        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit) * m_specularReflectance->eval(bRec.its);
+#else
+        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths) * m_specularReflectance->eval(bRec.its);
+#endif
 
         Float D;
         // pixel footprint in texture space
@@ -404,7 +464,17 @@ class Glittery : public BSDF
     ref<Texture> m_alphaU, m_alphaV;
     uint32_t m_totalFacets;
     bool m_sampleVisible;
-    Spectrum m_eta, m_k;
+    Spectrum m_eta;
+    ref<Texture> m_k;
+
+    // Dielectric thin film IOR
+    ref<Texture> m_height;
+    Spectrum m_eta1;
+    Spectrum m_eta2;
+    Spectrum m_wavelengths;
+
+    bool m_spectralAntialiasing;
+    bool m_useGaussianFit;
 
     // <spherical triangle id, pre-computed integration value>
     std::unordered_map<std::string, Float> integrations;
@@ -466,15 +536,16 @@ class GlitteryShader : public Shader
   public:
     GlitteryShader(Renderer *renderer, const Texture *specularReflectance,
                    const Texture *alphaU, const Texture *alphaV, const Spectrum &eta,
-                   const Spectrum &k) : Shader(renderer, EBSDFShader),
-                                        m_specularReflectance(specularReflectance), m_alphaU(alphaU), m_alphaV(alphaV)
+                   const Texture *k) : Shader(renderer, EBSDFShader),
+                                       m_specularReflectance(specularReflectance), m_alphaU(alphaU), m_alphaV(alphaV)
     {
         m_specularReflectanceShader = renderer->registerShaderForResource(m_specularReflectance.get());
         m_alphaUShader = renderer->registerShaderForResource(m_alphaU.get());
         m_alphaVShader = renderer->registerShaderForResource(m_alphaV.get());
 
         /* Compute the reflectance at perpendicular incidence */
-        m_R0 = fresnelConductorExact(1.0f, eta, k);
+        Spectrum m_k = Spectrum(1.0);
+        m_R0 = fresnelConductorExact(1.0f, eta, m_k);
     }
 
     bool isComplete() const
@@ -539,9 +610,19 @@ class GlitteryShader : public Shader
             << "    return " << evalName << "_R0 + (vec3(1.0) - " << evalName << "_R0) * ct5;" << endl
             << "}" << endl
             << endl
+            << "vec3 " << evalName << "_evalSensitivity(float ct) {" << endl
+            << "    float ctSqr = ct*ct, ct5 = ctSqr*ctSqr*ct;" << endl
+            << "    return " << evalName << "_R0 + (vec3(1.0) - " << evalName << "_R0) * ct5;" << endl
+            << "}" << endl
+            << endl
+            << "vec3 " << evalName << "_irid(float ct) {" << endl
+            << "    float ctSqr = ct*ct, ct5 = ctSqr*ctSqr*ct;" << endl
+            << "    return " << evalName << "_R0 + (vec3(1.0) - " << evalName << "_R0) * ct5;" << endl
+            << "}" << endl
+            << endl
             << "vec3 " << evalName << "(vec2 uv, vec3 wi, vec3 wo) {" << endl
             << "   if (cosTheta(wi) <= 0 || cosTheta(wo) <= 0)" << endl
-            << "    	return vec3(0.0);" << endl
+            << "     return vec3(0.0);" << endl
             << "   vec3 H = normalize(wi + wo);" << endl
             << "   vec3 reflectance = " << depNames[0] << "(uv);" << endl
             << "   float alphaU = max(0.2, " << depNames[1] << "(uv).r);" << endl
@@ -555,7 +636,7 @@ class GlitteryShader : public Shader
             << endl
             << "vec3 " << evalName << "_diffuse(vec2 uv, vec3 wi, vec3 wo) {" << endl
             << "    if (cosTheta(wi) < 0.0 || cosTheta(wo) < 0.0)" << endl
-            << "    	return vec3(0.0);" << endl
+            << "     return vec3(0.0);" << endl
             << "    return " << evalName << "_R0 * inv_pi * inv_pi * cosTheta(wo);" << endl
             << "}" << endl;
     }
@@ -573,7 +654,7 @@ class GlitteryShader : public Shader
 Shader *Glittery::createShader(Renderer *renderer) const
 {
     return new GlitteryShader(renderer,
-                              m_specularReflectance.get(), m_alphaU.get(), m_alphaV.get(), m_eta, m_k);
+                              m_specularReflectance.get(), m_alphaU.get(), m_alphaV.get(), m_eta, m_k.get());
 }
 
 MTS_IMPLEMENT_CLASS(GlitteryShader, false, Shader)
