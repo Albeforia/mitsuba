@@ -511,14 +511,23 @@ class Glittery : public BSDF
         }
     }
 
-    // get four points of a (2D)parallelogram from its center and extents
+    // get four points of a (2D)parallelogram in counterclockwise order
     Parallelogram extentsToPoint(Vector2 center, Vector2 extentU, Vector2 extentV) const
     {
         Parallelogram points;
-        points[0] = center + extentU;
         points[1] = center;
-        points[2] = center + extentV;
         points[3] = center + extentU + extentV;
+        auto winding = cross(Vector3(extentU.x, extentU.y, 0), Vector3(extentV.x, extentV.y, 0));
+        if (winding.z < 0)
+        {
+            points[0] = center + extentU;
+            points[2] = center + extentV;
+        }
+        else
+        {
+            points[0] = center + extentV;
+            points[2] = center + extentU;
+        }
         return points;
     }
 };
