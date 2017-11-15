@@ -149,23 +149,8 @@ class Glittery : public BSDF
             m_sampleVisible);
 
         /* Evaluate the microfacet normal distribution */
-        Float D;
-        // pixel footprint in texture space
-        const auto &its = bRec.its;
-        Vector2 center(its.uv.x, its.uv.y);
-        Vector2 extentU(its.dudx, its.dvdx);
-        Vector2 extentV(its.dudy, its.dvdy);
-        auto pixel = extentsToPoint(center, extentU, extentV);
-        // no differentials are specified, reverts back to the smooth case
-        if (extentU.isZero() || extentV.isZero())
-        {
-            D = distr.eval(H);
-        }
-        else
-        {
-            SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
-            D = distr.eval(H, pixel, scs, integrations);
-        }
+        Float pixelArea;
+        Float D = evaluateD(distr, bRec, pixelArea);
 
         if (D == 0)
             return Spectrum(0.0f);
@@ -179,7 +164,7 @@ class Glittery : public BSDF
 
         /* Calculate the total amount of reflection */
         Float model = dot(bRec.wi, H) * D * G /
-                      ((triangleArea(pixel[0], pixel[2], pixel[1]) * 2) * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                      (pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
 
         return F * model;
     }
@@ -248,23 +233,8 @@ class Glittery : public BSDF
                                            m_eta, m_k) *
                      m_specularReflectance->eval(bRec.its);
 
-        Float D;
-        // pixel footprint in texture space
-        const auto &its = bRec.its;
-        Vector2 center(its.uv.x, its.uv.y);
-        Vector2 extentU(its.dudx, its.dvdx);
-        Vector2 extentV(its.dudy, its.dvdy);
-        auto pixel = extentsToPoint(center, extentU, extentV);
-        // no differentials are specified, reverts back to the smooth case
-        if (extentU.isZero() || extentV.isZero())
-        {
-            D = distr.eval(m);
-        }
-        else
-        {
-            SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
-            D = distr.eval(m, pixel, scs, integrations);
-        }
+        Float pixelArea;
+        Float D = evaluateD(distr, bRec, pixelArea);
 
         Float weight;
         if (m_sampleVisible)
@@ -275,7 +245,7 @@ class Glittery : public BSDF
         {
             auto iDotm = dot(bRec.wi, m);
             weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                     (pdf * (triangleArea(pixel[0], pixel[2], pixel[1]) * 2) * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                     (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
         }
 
         return F * weight;
@@ -317,23 +287,8 @@ class Glittery : public BSDF
                                            m_eta, m_k) *
                      m_specularReflectance->eval(bRec.its);
 
-        Float D;
-        // pixel footprint in texture space
-        const auto &its = bRec.its;
-        Vector2 center(its.uv.x, its.uv.y);
-        Vector2 extentU(its.dudx, its.dvdx);
-        Vector2 extentV(its.dudy, its.dvdy);
-        auto pixel = extentsToPoint(center, extentU, extentV);
-        // no differentials are specified, reverts back to the smooth case
-        if (extentU.isZero() || extentV.isZero())
-        {
-            D = distr.eval(m);
-        }
-        else
-        {
-            SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
-            D = distr.eval(m, pixel, scs, integrations);
-        }
+        Float pixelArea;
+        Float D = evaluateD(distr, bRec, pixelArea);
 
         Float weight;
         if (m_sampleVisible)
@@ -344,7 +299,7 @@ class Glittery : public BSDF
         {
             auto iDotm = dot(bRec.wi, m);
             weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                     (pdf * (triangleArea(pixel[0], pixel[2], pixel[1]) * 2) * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                     (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
         }
 
         /* Jacobian of the half-direction mapping */
@@ -441,15 +396,64 @@ class Glittery : public BSDF
         }
     }
 
-    // get four points of a (2D)parallelogram from its center and extents
+    // get four points of a (2D)parallelogram in counterclockwise order
     Parallelogram extentsToPoint(Vector2 center, Vector2 extentU, Vector2 extentV) const
     {
         Parallelogram points;
-        points[0] = center + extentU;
         points[1] = center;
-        points[2] = center + extentV;
         points[3] = center + extentU + extentV;
+        auto winding = cross(Vector3(extentU.x, extentU.y, 0), Vector3(extentV.x, extentV.y, 0));
+        if (winding.z < 0)
+        {
+            points[0] = center + extentU;
+            points[2] = center + extentV;
+        }
+        else
+        {
+            points[0] = center + extentV;
+            points[2] = center + extentU;
+        }
         return points;
+    }
+
+    // evaluate the microfacet normal distribution
+    Float evaluateD(const DiscreteMicrofacetDistribution &distr, const BSDFSamplingRecord &bRec,
+                    Float &pixelArea) const
+    {
+        Float D;
+
+        /* Calculate the reflection half-vector */
+        Vector H = normalize(bRec.wo + bRec.wi);
+
+        // pixel footprint in texture space
+        const auto &its = bRec.its;
+        Vector2 center(its.uv.x, its.uv.y);
+        Vector2 extentU(its.dudx, its.dvdx);
+        Vector2 extentV(its.dudy, its.dvdy);
+        auto pixel = extentsToPoint(center, extentU, extentV);
+        pixelArea = 2 * triangleArea(pixel[0], pixel[2], pixel[1]);
+        // no differentials are specified, reverts back to the smooth case
+        if (extentU.isZero() || extentV.isZero())
+        {
+            D = distr.eval(H);
+        }
+        else
+        {
+            SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
+            D = distr.eval(H, pixel, scs, integrations);
+        }
+
+        return D;
+    }
+
+    std::string to_string(const Parallelogram &paral) const
+    {
+        std::stringstream ss;
+        ss << "[" << paral[0].x << "," << paral[0].y << "] ";
+        ss << "[" << paral[1].x << "," << paral[1].y << "] ";
+        ss << "[" << paral[2].x << "," << paral[2].y << "] ";
+        ss << "[" << paral[3].x << "," << paral[3].y << "]";
+        return ss.str();
     }
 };
 
