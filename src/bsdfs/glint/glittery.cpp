@@ -62,7 +62,7 @@ class Glittery : public BSDF
         integrate(distr, tri1, "0", 1);
         integrate(distr, tri2, "0", 2);
         integrate(distr, tri3, "0", 3);
-        SLog(EInfo, (std::string("Integration table entries: ") + std::to_string(integrations.size())).c_str());
+        SLog(EInfo, "Integration table entries: %d", integrations.size());
     }
 
     Glittery(Stream *stream, InstanceManager *manager)
@@ -371,8 +371,6 @@ class Glittery : public BSDF
         auto id = parentID + std::to_string(splitNumber);
 
         Float excess = tri.excess();
-        if (excess == 0)
-            SLog(EWarn, (std::string("spherical triangle excess is 0: ") + id).c_str());
         Float rule1 = excess * distr.eval(tri.center());
         Float rule2 = excess * (distr.eval(tri[0]) + distr.eval(tri[1]) + distr.eval(tri[2])) / 3;
         Float error = std::abs(rule1 - rule2);
@@ -439,8 +437,9 @@ class Glittery : public BSDF
         }
         else
         {
+            size_t sampleCount = bRec.sampler == nullptr ? 1 : bRec.sampler->getSampleCount();
             SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
-            D = distr.eval(H, pixel, scs, integrations);
+            D = distr.eval(H, pixel, scs, integrations, sampleCount);
         }
 
         return D;

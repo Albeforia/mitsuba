@@ -12,6 +12,13 @@
 #define inAABB(p, min, max) ((min).x <= (p).x && (p).x <= (max).x && (min).y <= (p).y && (p).y <= (max).y)
 #define inHalfPlane(p, p1, p2) (((p).x - (p2).x) * ((p1).y - (p2).y) - ((p1).x - (p2).x) * ((p).y - (p2).y) <= 0)
 #define inTriangle(p, p1, p2, p3) (inHalfPlane(p, p1, p2) && inHalfPlane(p, p2, p3) && inHalfPlane(p, p3, p1))
+#define aabbArea(aabb) (((aabb).max - (aabb).min).x * ((aabb).max - (aabb).min).y)
+
+// NOTE average query area(i.e. pixel footprint) varies according to resolution and sample count
+// the value below is pre-computed at the resolution of 683x512 with sample count 1
+#define AVG_QUERY_AREA 0.0000016662
+
+#define AVG_QUERY_SOLID_ANGLE 0.0131010329
 
 MTS_NAMESPACE_BEGIN
 
@@ -164,12 +171,13 @@ class DiscreteMicrofacetDistribution
 	 */
     inline Float eval(const Vector &m,
                       const Parallelogram &pixel, const SphericalConicSection &scs,
-                      const std::unordered_map<std::string, Float> &integrations) const
+                      const std::unordered_map<std::string, Float> &integrations,
+                      size_t sampleCount) const
     {
         if (Frame::cosTheta(m) <= 0)
             return 0.0f;
 
-        Float result = countParticles(pixel, scs, integrations) / static_cast<float>(m_totalFacets);
+        Float result = countParticles(pixel, scs, integrations, sampleCount) / static_cast<float>(m_totalFacets);
 
         /* Prevent potential numerical issues in other stages of the model */
         if (result * Frame::cosTheta(m) < 1e-20f)
@@ -216,7 +224,9 @@ class DiscreteMicrofacetDistribution
     }
 
     // [Algorithm 1]
-    uint32_t countParticles(const Parallelogram &pixel, const SphericalConicSection &scs, const std::unordered_map<std::string, Float> &integrations) const
+    uint32_t countParticles(const Parallelogram &pixel, const SphericalConicSection &scs,
+                            const std::unordered_map<std::string, Float> &integrations,
+                            size_t sampleCount) const
     {
         uint32_t count = 0;
         std::queue<Node> queue;
@@ -244,7 +254,7 @@ class DiscreteMicrofacetDistribution
             }
             else
             {
-                if (overlapDirectional == 2)
+                if ((AVG_QUERY_AREA / sampleCount) / aabbArea(curr.m_spatial) < AVG_QUERY_SOLID_ANGLE / curr.m_directional.excess())
                 {
                     std::array<float, 4> pv{0.25f, 0.25f, 0.25f, 0.25f};
                     auto counts = multinomial(curr.m_count, pv);
