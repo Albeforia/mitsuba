@@ -200,20 +200,44 @@ inline Spectrum evalSensitivity(Spectrum OPD, Spectrum shift, bool useGaussianFi
 }
 #endif
 
+struct IridescenceParams
+{
+      Spectrum *height;
+      Spectrum *eta1;
+      Spectrum *eta2;
+      Spectrum *eta3;
+      Spectrum *kappa3;
+      Spectrum *wavelengths;
+      bool spectralAntialiasing;
+      bool useGaussianFit;
+
+      IridescenceParams(const Spectrum &height, const Spectrum &eta1, const Spectrum &eta2,
+                        const Spectrum &eta3, const Spectrum &kappa3, const Spectrum &wavelengths,
+                        bool spectralAntialiasing = true, bool useGaussianFit = false) :
+                        height(const_cast<Spectrum *>(&height)),
+                        eta1(const_cast<Spectrum *>(&eta1)),
+                        eta2(const_cast<Spectrum *>(&eta2)),
+                        eta3(const_cast<Spectrum *>(&eta3)),
+                        kappa3(const_cast<Spectrum *>(&kappa3)),
+                        wavelengths(const_cast<Spectrum *>(&wavelengths)),
+                        spectralAntialiasing(spectralAntialiasing),
+                        useGaussianFit(useGaussianFit) {}
+};
+
 /* Our iridescence term accounting for the interference of light reflected
  * by the layered structure.
  */
-inline Spectrum IridescenceTerm(const BSDFSamplingRecord &bRec,
-                                const Spectrum &height,
-                                Float ct1,
-                                const Spectrum &eta1,
-                                const Spectrum &eta2,
-                                const Spectrum &eta3,
-                                const Spectrum &kappa3,
-                                const Spectrum &wavelengths,
-                                bool spectralAntialiasing = true,
-                                bool useGaussianFit = false)
+inline Spectrum IridescenceTerm(Float ct1, IridescenceParams params)
 {
+      const Spectrum &height = *params.height;
+      const Spectrum &eta1 = *params.eta1;
+      const Spectrum &eta2 = *params.eta2;
+      const Spectrum &eta3 = *params.eta3;
+      const Spectrum &kappa3 = *params.kappa3;
+      const Spectrum &wavelengths = *params.wavelengths;
+      bool spectralAntialiasing = params.spectralAntialiasing;
+      bool useGaussianFit = params.useGaussianFit;
+
       /* Compute the Spectral versions of the Fresnel reflectance and
     * transmitance for each interface. */
       Spectrum R12p, T121p, R23p, R12s, T121s, R23s, ct2;

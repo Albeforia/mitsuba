@@ -204,9 +204,11 @@ class Glittery : public BSDF
         const Spectrum h = m_height->eval(bRec.its);
         const Spectrum k = m_k->eval(bRec.its);
 #if SPECTRUM_SAMPLES == 3
-        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, H), m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit) * m_specularReflectance->eval(bRec.its);
+        IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit);
+        const Spectrum I = IridescenceTerm(dot(bRec.wi, H), params) * m_specularReflectance->eval(bRec.its);
 #else
-        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, H), m_eta1, m_eta2, m_eta, k, m_wavelengths) * m_specularReflectance->eval(bRec.its);
+        IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths);
+        const Spectrum I = IridescenceTerm(dot(bRec.wi, H), params) * m_specularReflectance->eval(bRec.its);
 #endif
 
         /* Smith's shadow-masking function */
@@ -216,7 +218,7 @@ class Glittery : public BSDF
         Float model = dot(bRec.wi, H) * D * G /
                       (pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
 
-        return F * model;
+        return I * model;
     }
 
     Float pdf(const BSDFSamplingRecord &bRec, EMeasure measure) const
@@ -283,9 +285,11 @@ class Glittery : public BSDF
         const Spectrum h = m_height->eval(bRec.its);
         const Spectrum k = m_k->eval(bRec.its);
 #if SPECTRUM_SAMPLES == 3
-        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit) * m_specularReflectance->eval(bRec.its);
+        IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit);
+        const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #else
-        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths) * m_specularReflectance->eval(bRec.its);
+        IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths);
+        const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #endif
 
         Float pixelArea;
@@ -303,7 +307,7 @@ class Glittery : public BSDF
                      (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
         }
 
-        return F * weight;
+        return I * weight;
     }
 
     Spectrum sample(BSDFSamplingRecord &bRec, Float &pdf, const Point2 &sample) const
@@ -342,9 +346,11 @@ class Glittery : public BSDF
         const Spectrum h = m_height->eval(bRec.its);
         const Spectrum k = m_k->eval(bRec.its);
 #if SPECTRUM_SAMPLES == 3
-        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit) * m_specularReflectance->eval(bRec.its);
+        IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit);
+        const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #else
-        const Spectrum F = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths) * m_specularReflectance->eval(bRec.its);
+        IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths);
+        const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #endif
 
         Float pixelArea;
@@ -365,7 +371,7 @@ class Glittery : public BSDF
         /* Jacobian of the half-direction mapping */
         pdf /= 4.0f * dot(bRec.wo, m);
 
-        return F * weight;
+        return I * weight;
     }
 
     void addChild(const std::string &name, ConfigurableObject *child)

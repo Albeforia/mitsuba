@@ -191,9 +191,11 @@ class RoughConductor : public BSDF
             const Spectrum h = m_height->eval(bRec.its);
             const Spectrum k = m_k->eval(bRec.its);
 #if SPECTRUM_SAMPLES == 3
-            const Spectrum I = IridescenceTerm(bRec, h, dot(bRec.wi, H), m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit) * m_specularReflectance->eval(bRec.its);
+            IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit);
+            const Spectrum I = IridescenceTerm(dot(bRec.wi, H), params) * m_specularReflectance->eval(bRec.its);
 #else
-            const Spectrum I = IridescenceTerm(bRec, h, dot(bRec.wi, H), m_eta1, m_eta2, m_eta, k, m_wavelengths) * m_specularReflectance->eval(bRec.its);
+            IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths);
+            const Spectrum I = IridescenceTerm(dot(bRec.wi, H), params) * m_specularReflectance->eval(bRec.its);
 #endif
 
             /* Smith's shadow-masking function */
@@ -266,9 +268,11 @@ class RoughConductor : public BSDF
             const Spectrum h = m_height->eval(bRec.its);
             const Spectrum k = m_k->eval(bRec.its);
 #if SPECTRUM_SAMPLES == 3
-            const Spectrum I = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit) * m_specularReflectance->eval(bRec.its);
+            IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit);
+            const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #else
-            const Spectrum I = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths) * m_specularReflectance->eval(bRec.its);
+            IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths);
+            const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #endif
 
             Float weight;
@@ -318,9 +322,11 @@ class RoughConductor : public BSDF
             const Spectrum h = m_height->eval(bRec.its);
             const Spectrum k = m_k->eval(bRec.its);
 #if SPECTRUM_SAMPLES == 3
-            const Spectrum I = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit) * m_specularReflectance->eval(bRec.its);
+            IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit);
+            const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #else
-            const Spectrum I = IridescenceTerm(bRec, h, dot(bRec.wi, m), m_eta1, m_eta2, m_eta, k, m_wavelengths) * m_specularReflectance->eval(bRec.its);
+            IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths);
+            const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #endif
 
             Float weight;
