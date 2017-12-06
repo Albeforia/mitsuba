@@ -150,7 +150,8 @@ class Glittery : public BSDF
 
         /* Evaluate the microfacet normal distribution */
         Float pixelArea;
-        Float D = evaluateD(distr, bRec, pixelArea);
+        Float D;
+        bool discrete = evaluateD(distr, bRec, D, pixelArea);
 
         if (D == 0)
             return Spectrum(0.0f);
@@ -163,8 +164,16 @@ class Glittery : public BSDF
         const Float G = distr.G(bRec.wi, bRec.wo, H);
 
         /* Calculate the total amount of reflection */
-        Float model = dot(bRec.wi, H) * D * G /
-                      (pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+        Float model;
+        if (discrete)
+        {
+            model = dot(bRec.wi, H) * D * G /
+                    (pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+        }
+        else
+        {
+            model = D * G / (4.0f * Frame::cosTheta(bRec.wi));
+        }
 
         return F * model;
     }
@@ -234,7 +243,8 @@ class Glittery : public BSDF
                      m_specularReflectance->eval(bRec.its);
 
         Float pixelArea;
-        Float D = evaluateD(distr, bRec, pixelArea);
+        Float D;
+        bool discrete = evaluateD(distr, bRec, D, pixelArea);
 
         Float weight;
         if (m_sampleVisible)
@@ -243,9 +253,16 @@ class Glittery : public BSDF
         }
         else
         {
-            auto iDotm = dot(bRec.wi, m);
-            weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                     (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+            if (discrete)
+            {
+                auto iDotm = dot(bRec.wi, m);
+                weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
+                         (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+            }
+            else
+            {
+                weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
+            }
         }
 
         return F * weight;
@@ -288,7 +305,8 @@ class Glittery : public BSDF
                      m_specularReflectance->eval(bRec.its);
 
         Float pixelArea;
-        Float D = evaluateD(distr, bRec, pixelArea);
+        Float D;
+        bool discrete = evaluateD(distr, bRec, D, pixelArea);
 
         Float weight;
         if (m_sampleVisible)
@@ -297,9 +315,16 @@ class Glittery : public BSDF
         }
         else
         {
-            auto iDotm = dot(bRec.wi, m);
-            weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                     (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+            if (discrete)
+            {
+                auto iDotm = dot(bRec.wi, m);
+                weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
+                         (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+            }
+            else
+            {
+                weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
+            }
         }
 
         /* Jacobian of the half-direction mapping */
@@ -415,11 +440,10 @@ class Glittery : public BSDF
     }
 
     // evaluate the microfacet normal distribution
-    Float evaluateD(const DiscreteMicrofacetDistribution &distr, const BSDFSamplingRecord &bRec,
-                    Float &pixelArea) const
+    bool evaluateD(const DiscreteMicrofacetDistribution &distr, const BSDFSamplingRecord &bRec,
+                   /* OUTPUT */
+                   Float &value, Float &pixelArea) const
     {
-        Float D;
-
         /* Calculate the reflection half-vector */
         Vector H = normalize(bRec.wo + bRec.wi);
 
@@ -433,16 +457,13 @@ class Glittery : public BSDF
         // no differentials are specified, reverts back to the smooth case
         if (extentU.isZero() || extentV.isZero())
         {
-            D = distr.eval(H);
+            value = distr.eval(H);
+            return false;
         }
-        else
-        {
-            size_t sampleCount = bRec.sampler == nullptr ? 1 : bRec.sampler->getSampleCount();
-            SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
-            D = distr.eval(H, pixel, scs, integrations, sampleCount);
-        }
-
-        return D;
+        size_t sampleCount = bRec.sampler == nullptr ? 1 : bRec.sampler->getSampleCount();
+        SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
+        value = distr.eval(H, pixel, scs, integrations, sampleCount);
+        return true;
     }
 
     std::string to_string(const Parallelogram &paral) const
