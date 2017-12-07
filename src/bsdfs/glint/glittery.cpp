@@ -449,17 +449,17 @@ class Glittery : public BSDF
 
         // pixel footprint in texture space
         const auto &its = bRec.its;
+        // no differentials are specified, reverts back to the smooth case
+        if (!its.hasUVPartials)
+        {
+            value = distr.eval(H);
+            return false;
+        }
         Vector2 center(its.uv.x, its.uv.y);
         Vector2 extentU(its.dudx, its.dvdx);
         Vector2 extentV(its.dudy, its.dvdy);
         auto pixel = extentsToPoint(center, extentU, extentV);
         pixelArea = 2 * triangleArea(pixel[0], pixel[2], pixel[1]);
-        // no differentials are specified, reverts back to the smooth case
-        if (extentU.isZero() || extentV.isZero())
-        {
-            value = distr.eval(H);
-            return false;
-        }
         size_t sampleCount = bRec.sampler == nullptr ? 1 : bRec.sampler->getSampleCount();
         SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
         value = distr.eval(H, pixel, scs, integrations, sampleCount);
