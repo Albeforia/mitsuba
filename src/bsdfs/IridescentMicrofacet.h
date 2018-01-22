@@ -150,8 +150,11 @@ inline Spectrum evalSensitivity(Spectrum OPD, Spectrum shift, bool useGaussianFi
             pos.fromLinearRGB(_pos[0], _pos[1], _pos[2]);
             var.fromLinearRGB(_var[0], _var[1], _var[2]);
 
-            Spectrum xyz = val * sqrt(2 * M_PI * var) * cos(pos * phase + shift) * exp(-phase * phase * var);
-            xyz[0] += 9.7470e-14 * std::sqrt(2 * M_PI * 4.5282e+09) * std::cos(2.2399e+06 * phase[0] + shift[0]) * std::exp(-4.5282e+09 * phase[0] * phase[0]);
+            Spectrum xyz = val * sqrt(2 * M_PI * var) * cos(pos * phase + shift) *
+                           exp(-phase * phase * var / 2);
+            xyz[0] += 9.7470e-14 * std::sqrt(2 * M_PI * 4.5282e+09) *
+                      std::cos(2.2399e+06 * phase[0] + shift[0]) *
+                      std::exp(-4.5282e+09 * phase[0] * phase[0] / 2);
             return xyz / 1.0685e-7;
       }
       else
@@ -202,39 +205,36 @@ inline Spectrum evalSensitivity(Spectrum OPD, Spectrum shift, bool useGaussianFi
 
 struct IridescenceParams
 {
-      Spectrum *height;
-      Spectrum *eta1;
-      Spectrum *eta2;
-      Spectrum *eta3;
-      Spectrum *kappa3;
-      Spectrum *wavelengths;
+      Spectrum height;
+      Spectrum eta1;
+      Spectrum eta2;
+      Spectrum eta3;
+      Spectrum kappa3;
+      Spectrum wavelengths;
       bool spectralAntialiasing;
       bool useGaussianFit;
 
-      IridescenceParams(const Spectrum &height, const Spectrum &eta1, const Spectrum &eta2,
-                        const Spectrum &eta3, const Spectrum &kappa3, const Spectrum &wavelengths,
+      IridescenceParams(const Spectrum &height,
+                        const Spectrum &eta1, const Spectrum &eta2, const Spectrum &eta3,
+                        const Spectrum &kappa3, const Spectrum &wavelengths,
                         bool spectralAntialiasing = true, bool useGaussianFit = false) :
-                        height(const_cast<Spectrum *>(&height)),
-                        eta1(const_cast<Spectrum *>(&eta1)),
-                        eta2(const_cast<Spectrum *>(&eta2)),
-                        eta3(const_cast<Spectrum *>(&eta3)),
-                        kappa3(const_cast<Spectrum *>(&kappa3)),
-                        wavelengths(const_cast<Spectrum *>(&wavelengths)),
-                        spectralAntialiasing(spectralAntialiasing),
-                        useGaussianFit(useGaussianFit) {}
+                        height(height),
+                        eta1(eta1), eta2(eta2), eta3(eta3),
+                        kappa3(kappa3), wavelengths(wavelengths),
+                        spectralAntialiasing(spectralAntialiasing), useGaussianFit(useGaussianFit) {}
 };
 
 /* Our iridescence term accounting for the interference of light reflected
  * by the layered structure.
  */
-inline Spectrum IridescenceTerm(Float ct1, IridescenceParams params)
+inline Spectrum IridescenceTerm(Float ct1, const IridescenceParams& params)
 {
-      const Spectrum &height = *params.height;
-      const Spectrum &eta1 = *params.eta1;
-      const Spectrum &eta2 = *params.eta2;
-      const Spectrum &eta3 = *params.eta3;
-      const Spectrum &kappa3 = *params.kappa3;
-      const Spectrum &wavelengths = *params.wavelengths;
+      const Spectrum &height = params.height;
+      const Spectrum &eta1 = params.eta1;
+      const Spectrum &eta2 = params.eta2;
+      const Spectrum &eta3 = params.eta3;
+      const Spectrum &kappa3 = params.kappa3;
+      const Spectrum &wavelengths = params.wavelengths;
       bool spectralAntialiasing = params.spectralAntialiasing;
       bool useGaussianFit = params.useGaussianFit;
 
