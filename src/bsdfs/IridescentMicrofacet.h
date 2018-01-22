@@ -42,6 +42,15 @@ Spectrum exp(const Spectrum &s)
       return value;
 }
 
+/* Helper function: compute the sine of a spectrum variable */
+Spectrum sin(const Spectrum &s)
+{
+      Spectrum value;
+      for (int i = 0; i < SPECTRUM_SAMPLES; i++)
+            value[i] = std::sin(s[i]);
+      return value;
+}
+
 /* Helper function: compute the cosine of a spectrum variable */
 Spectrum cos(const Spectrum &s)
 {
@@ -201,6 +210,29 @@ inline Spectrum evalSensitivity(Spectrum OPD, Spectrum shift, bool useGaussianFi
             return xyz;
       }
 }
+
+inline Spectrum evalSensitivityMean(int m, Float heightMin, Float heightMax,
+                                    Spectrum tao, Spectrum shift)
+{
+      Spectrum val, pos, var;
+      val.fromLinearRGB(_val[0], _val[1], _val[2]);
+      pos.fromLinearRGB(_pos[0], _pos[1], _pos[2]);
+      var.fromLinearRGB(_var[0], _var[1], _var[2]);
+
+      auto A = val * sqrt(2 * M_PI * var);
+      auto B = 2 * M_PI * m * pos * tao;
+      auto C = M_PI * m * tao;
+      C *= 2 * C * var;
+
+      auto integrate = [&A, &B, &C, &shift] (Float d) {
+            auto term1 = 2*B*C*d*cos(B*d+shift);
+            auto term2 = (-2*C+B*B*(C*d*d-Spectrum(1)))*sin(B*d+shift);
+            return -A*(term1+term2)/(B*B*B);
+      };
+
+      return integrate(heightMax*1.0e-9) - integrate(heightMin*1.0e-9);
+}
+
 #endif
 
 struct IridescenceParams
@@ -363,6 +395,113 @@ inline Spectrum IridescenceTerm(Float ct1, const IridescenceParams& params)
             // Assure that the BRDF is non negative
             I.clampNegative();
 #if SPECTRUM_SAMPLES == 3
+      }
+#endif
+
+      return 0.5 * I;
+}
+
+inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params)
+{
+      const Spectrum &height = params.height;
+      const Spectrum &eta1 = params.eta1;
+      const Spectrum &eta2 = params.eta2;
+      const Spectrum &eta3 = params.eta3;
+      const Spectrum &kappa3 = params.kappa3;
+      const Spectrum &wavelengths = params.wavelengths;
+      bool spectralAntialiasing = params.spectralAntialiasing;
+      bool useGaussianFit = params.useGaussianFit;
+
+      /* Compute the Spectral versions of the Fresnel reflectance and
+       * transmitance for each interface. */
+      Spectrum R12p, T121p, R23p, R12s, T121s, R23s, ct2;
+      for (int i = 0; i < SPECTRUM_SAMPLES; ++i)
+      {
+            const Float scale = eta1[i] / eta2[i];
+            const Float cosThetaTSqr = 1 - (1 - sqr(ct1)) * sqr(scale);
+
+            /* Check for total internal reflection */
+            if (cosThetaTSqr <= 0.0f)
+            {
+                  R12s[i] = 1.0;
+                  R12p[i] = 1.0;
+                  T121p[i] = 0.0;
+                  T121s[i] = 0.0;
+            }
+            else
+            {
+                  ct2[i] = std::sqrt(cosThetaTSqr);
+                  fresnelConductorExact(ct1, eta2[i] / eta1[i], 0.0, R12p[i], R12s[i]);
+                  fresnelConductorExact(ct2[i], eta3[i] / eta2[i], kappa3[i] / eta2[i], R23p[i], R23s[i]);
+                  T121p[i] = 1.0 - R12p[i];
+                  T121s[i] = 1.0 - R12s[i];
+            }
+      }
+
+      /* Variables */
+      Spectrum phi21p(0.), phi21s(0.), phi23p(0.), phi23s(0.),
+          r123s, r123p, Rs, cosP, irid, I(0.);
+
+      /* Evaluate the phase shift */
+      fresnelPhaseExact(Spectrum(ct1), Spectrum(1.0), eta2, Spectrum(0.0), phi21p, phi21s);
+      fresnelPhaseExact(ct2, eta2, eta3, kappa3, phi23p, phi23s);
+      phi21p = Spectrum(M_PI) - phi21p;
+      phi21s = Spectrum(M_PI) - phi21s;
+
+      r123p = sqrt(R12p * R23p);
+      r123s = sqrt(R12s * R23s);
+
+#if SPECTRUM_SAMPLES == 3
+      if (spectralAntialiasing)
+      {
+            Spectrum C0, Cm, Sm;
+            const Spectrum S0 = Spectrum(1.0);
+
+            /* Iridescence term using spectral antialiasing for Parallel polarization */
+            // Reflectance term for m=0 (DC term amplitude)
+            Rs = (sqr(T121p) * R23p) / (Spectrum(1.0) - R12p * R23p);
+            C0 = R12p + Rs;
+            I += C0 * S0;
+
+            // Reflectance term for m>0 (pairs of diracs)
+            Cm = Rs - T121p;
+            for (int m = 1; m <= 2; ++m)
+            {
+                  Cm *= r123p;
+                  Sm = 2.0 * evalSensitivityMean(m, 200, 1000, 2.0 * eta2 * ct2,
+                                                 m * (phi23p + phi21p));
+                  I += Cm * Sm;
+            }
+
+            /* Iridescence term using spectral antialiasing for Perpendicular polarization */
+            // Reflectance term for m=0 (DC term amplitude)
+            Rs = (sqr(T121s) * R23s) / (Spectrum(1.0) - R12s * R23s);
+            C0 = R12s + Rs;
+            I += C0 * S0;
+
+            // Reflectance term for m>0 (pairs of diracs)
+            Cm = Rs - T121s;
+            for (int m = 1; m <= 2; ++m)
+            {
+                  Cm *= r123s;
+                  Sm = 2.0 * evalSensitivityMean(m, 200, 1000, 2.0 * eta2 * ct2,
+                                                 m * (phi23s + phi21s));
+                  I += Cm * Sm;
+            }
+
+            // Ensure that the BRDF is non negative and convert it to RGB
+            const Float r = 2.3646381 * I[0] - 0.8965361 * I[1] - 0.4680737 * I[2];
+            const Float g = -0.5151664 * I[0] + 1.4264000 * I[1] + 0.0887608 * I[2];
+            const Float b = 0.0052037 * I[0] - 0.0144081 * I[1] + 1.0092106 * I[2];
+            I[0] = r;
+            I[1] = g;
+            I[2] = b;
+
+            I.clampNegative();
+      }
+      else
+      {
+            //
       }
 #endif
 
