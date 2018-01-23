@@ -149,7 +149,6 @@ extern const Float iShZ[nCMFs];
 */
 inline Spectrum evalSensitivity(Spectrum OPD, Spectrum shift, bool useGaussianFit)
 {
-
       if (useGaussianFit)
       {
             // {Fitted version with phase shift}
@@ -211,8 +210,7 @@ inline Spectrum evalSensitivity(Spectrum OPD, Spectrum shift, bool useGaussianFi
       }
 }
 
-inline Spectrum evalSensitivityMean(int m, Float heightMin, Float heightMax,
-                                    Spectrum tao, Spectrum shift)
+inline Spectrum evalSensitivityMean(int m, Spectrum tao, Spectrum shift, Float minHeight, Float maxHeight)
 {
       Spectrum val, pos, var;
       val.fromLinearRGB(_val[0], _val[1], _val[2]);
@@ -227,10 +225,29 @@ inline Spectrum evalSensitivityMean(int m, Float heightMin, Float heightMax,
       auto integrate = [&A, &B, &C, &shift] (Float d) {
             auto term1 = 2*B*C*d*cos(B*d+shift);
             auto term2 = (-2*C+B*B*(C*d*d-Spectrum(1)))*sin(B*d+shift);
-            return -A*(term1+term2)/(B*B*B);
+            return -A*(term1+term2)/(1.0685e-7 * B*B*B);
       };
 
-      return integrate(heightMax*1.0e-9) - integrate(heightMin*1.0e-9);
+      auto res = integrate(maxHeight*1.0e-9) - integrate(minHeight*1.0e-9);
+
+      // second part of x
+      auto Ax = 9.7470e-14 * std::sqrt(2 * M_PI * 4.5282e+09);
+      auto Bx = 2 * M_PI * m * 2.2399e+06 * tao[0];
+      auto Cx = M_PI * m * tao[0];
+      Cx *= 2 * Cx * 4.5282e+09;
+
+      auto integrateX = [&Ax, &Bx, &Cx, &shift] (Float d) {
+            auto term1 = 2*Bx*Cx*d*std::cos(Bx*d+shift[0]);
+            auto term2 = (-2*Cx+Bx*Bx*(Cx*d*d-1))*std::sin(Bx*d+shift[0]);
+            return -Ax*(term1+term2)/(1.0685e-7 * Bx*Bx*Bx);
+      };
+
+      res[0] += integrateX(maxHeight*1.0e-9) - integrateX(minHeight*1.0e-9);
+
+      // Multiply P(d)
+      res *= 1e9 / (maxHeight - minHeight);
+
+      return res;
 }
 
 #endif
@@ -372,9 +389,7 @@ inline Spectrum IridescenceTerm(Float ct1, const IridescenceParams& params)
             I[0] = r;
             I[1] = g;
             I[2] = b;
-            /*/
-      I.fromXYZ(I[0], I[1], I[2]);
-//*/
+
             I.clampNegative();
       }
       else
@@ -401,7 +416,8 @@ inline Spectrum IridescenceTerm(Float ct1, const IridescenceParams& params)
       return 0.5 * I;
 }
 
-inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params)
+inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params,
+                                Float minHeight, Float maxHeight)
 {
       const Spectrum &height = params.height;
       const Spectrum &eta1 = params.eta1;
@@ -468,8 +484,8 @@ inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params)
             for (int m = 1; m <= 2; ++m)
             {
                   Cm *= r123p;
-                  Sm = 2.0 * evalSensitivityMean(m, 200, 1000, 2.0 * eta2 * ct2,
-                                                 m * (phi23p + phi21p));
+                  Sm = 2.0 * evalSensitivityMean(m, 2.0 * eta2 * ct2, m * (phi23p + phi21p),
+                                                 minHeight, maxHeight);
                   I += Cm * Sm;
             }
 
@@ -484,8 +500,8 @@ inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params)
             for (int m = 1; m <= 2; ++m)
             {
                   Cm *= r123s;
-                  Sm = 2.0 * evalSensitivityMean(m, 200, 1000, 2.0 * eta2 * ct2,
-                                                 m * (phi23s + phi21s));
+                  Sm = 2.0 * evalSensitivityMean(m, 2.0 * eta2 * ct2, m * (phi23s + phi21s),
+                                                 minHeight, maxHeight);
                   I += Cm * Sm;
             }
 
@@ -501,7 +517,9 @@ inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params)
       }
       else
       {
-            //
+#endif
+            // TODO
+#if SPECTRUM_SAMPLES == 3
       }
 #endif
 
