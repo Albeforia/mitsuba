@@ -2,6 +2,7 @@
 #include <mitsuba/render/bsdf.h>
 #include <mitsuba/hw/basicshader.h>
 #include <unordered_map>
+#include <random>
 #include "microfacet_discrete.h"
 #include "../ior.h"
 #include "../IridescentMicrofacet.h"
@@ -75,6 +76,9 @@ class Glittery : public BSDF
         // Height of the layer in nanometers
         m_height = new ConstantSpectrumTexture(
             props.getSpectrum("height", Spectrum(400.0f)));
+
+        m_minHeight = props.getFloat("minHeight", 400.0f);
+        m_maxHeight = props.getFloat("maxHeight", 800.0f);
 
         Float extEta = lookupIOR(props, "extEta", "air");
         m_eta1 = Spectrum(extEta);
@@ -212,22 +216,38 @@ class Glittery : public BSDF
         const Spectrum I = IridescenceTerm(dot(bRec.wi, H), params) * m_specularReflectance->eval(bRec.its);
 #endif
 
+        Spectrum mean, variance;
+        std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, H), params, m_minHeight, m_maxHeight);
+        // SLog(EInfo, "mean: %f, %f, %f", mean[0], mean[1], mean[2]);
+        // SLog(EInfo, "var: %f, %f, %f", variance[0], variance[1], variance[2]);
+
         /* Smith's shadow-masking function */
         const Float G = distr.G(bRec.wi, bRec.wo, H);
 
         /* Calculate the total amount of reflection */
-        Float model;
         if (discrete)
         {
-            model = dot(bRec.wi, H) * D * G /
+            Float sqrt_n = std::sqrt(D * m_totalFacets);
+            auto stddev = sqrt(variance);
+            std::normal_distribution<Float> nd_r(mean[0], stddev[0]/sqrt_n);
+            std::normal_distribution<Float> nd_g(mean[1], stddev[1]/sqrt_n);
+            std::normal_distribution<Float> nd_b(mean[2], stddev[2]/sqrt_n);
+
+            Spectrum F(0.);
+            std::mt19937 gen(std::random_device{}());
+            F[0] = nd_r(gen);
+            F[1] = nd_g(gen);
+            F[2] = nd_b(gen);
+            F.clampNegative();
+            F *= m_specularReflectance->eval(bRec.its);
+
+            return dot(bRec.wi, H) * F * D * G /
                     (pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
         }
         else
         {
-            model = D * G / (4.0f * Frame::cosTheta(bRec.wi));
+            return  I * D * G / (4.0f * Frame::cosTheta(bRec.wi));
         }
-
-        return I * model;
     }
 
     Float pdf(const BSDFSamplingRecord &bRec, EMeasure measure) const
@@ -301,6 +321,9 @@ class Glittery : public BSDF
         const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #endif
 
+        Spectrum mean, variance;
+        std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, m), params, m_minHeight, m_maxHeight);
+
         Float pixelArea;
         Float D;
         bool discrete = evaluateD(distr, bRec, D, pixelArea);
@@ -314,17 +337,31 @@ class Glittery : public BSDF
         {
             if (discrete)
             {
+                Float sqrt_n = std::sqrt(D * m_totalFacets);
+                auto stddev = sqrt(variance);
+                std::normal_distribution<Float> nd_r(mean[0], stddev[0]/sqrt_n);
+                std::normal_distribution<Float> nd_g(mean[1], stddev[1]/sqrt_n);
+                std::normal_distribution<Float> nd_b(mean[2], stddev[2]/sqrt_n);
+
+                Spectrum F(0.);
+                std::mt19937 gen(std::random_device{}());
+                F[0] = nd_r(gen);
+                F[1] = nd_g(gen);
+                F[2] = nd_b(gen);
+                F.clampNegative();
+                F *= m_specularReflectance->eval(bRec.its);
+
                 auto iDotm = dot(bRec.wi, m);
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
                          (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                return F * weight;
             }
             else
             {
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
+                return I * weight;
             }
         }
-
-        return I * weight;
     }
 
     Spectrum sample(BSDFSamplingRecord &bRec, Float &pdf, const Point2 &sample) const
@@ -370,6 +407,9 @@ class Glittery : public BSDF
         const Spectrum I = IridescenceTerm(dot(bRec.wi, m), params) * m_specularReflectance->eval(bRec.its);
 #endif
 
+        Spectrum mean, variance;
+        std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, m), params, m_minHeight, m_maxHeight);
+
         Float pixelArea;
         Float D;
         bool discrete = evaluateD(distr, bRec, D, pixelArea);
@@ -383,20 +423,35 @@ class Glittery : public BSDF
         {
             if (discrete)
             {
+                Float sqrt_n = std::sqrt(D * m_totalFacets);
+                auto stddev = sqrt(variance);
+                std::normal_distribution<Float> nd_r(mean[0], stddev[0]/sqrt_n);
+                std::normal_distribution<Float> nd_g(mean[1], stddev[1]/sqrt_n);
+                std::normal_distribution<Float> nd_b(mean[2], stddev[2]/sqrt_n);
+
+                Spectrum F(0.);
+                std::mt19937 gen(std::random_device{}());
+                F[0] = nd_r(gen);
+                F[1] = nd_g(gen);
+                F[2] = nd_b(gen);
+                F.clampNegative();
+                F *= m_specularReflectance->eval(bRec.its);
+
                 auto iDotm = dot(bRec.wi, m);
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
                          (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                /* Jacobian of the half-direction mapping */
+                pdf /= 4.0f * dot(bRec.wo, m);
+                return F * weight;
             }
             else
             {
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
+                /* Jacobian of the half-direction mapping */
+                pdf /= 4.0f * dot(bRec.wo, m);
+                return I * weight;
             }
         }
-
-        /* Jacobian of the half-direction mapping */
-        pdf /= 4.0f * dot(bRec.wo, m);
-
-        return I * weight;
     }
 
     void addChild(const std::string &name, ConfigurableObject *child)
@@ -458,6 +513,10 @@ class Glittery : public BSDF
     Spectrum m_eta1;
     Spectrum m_eta2;
     Spectrum m_wavelengths;
+
+    // Min and max thickness(nm) of thin-film layer
+    Float m_minHeight;
+    Float m_maxHeight;
 
     bool m_spectralAntialiasing;
     bool m_useGaussianFit;

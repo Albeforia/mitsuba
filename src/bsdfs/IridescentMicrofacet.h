@@ -250,6 +250,35 @@ inline Spectrum evalSensitivityMean(int m, Spectrum tao, Spectrum shift, Float m
       return res;
 }
 
+inline Spectrum evalSensitivitySquare(Spectrum tao, Spectrum shift, Float minHeight, Float maxHeight)
+{
+      // m == 1
+
+      Spectrum val, pos, var;
+      val.fromLinearRGB(_val[0], _val[1], _val[2]);
+      pos.fromLinearRGB(_pos[0], _pos[1], _pos[2]);
+      var.fromLinearRGB(_var[0], _var[1], _var[2]);
+
+      auto A = 2 * M_PI * (val/1.0685e-7) * (val/1.0685e-7) * var;
+      auto B = 2 * M_PI * pos * tao;
+      auto C = M_PI * tao;
+      C *= 4 * C * var;
+
+      auto integrate = [&A, &B, &C, &shift] (Float d) {
+            auto term1 = 4*B*B*(B*d*(C*d*d-Spectrum(3))-3*shift);
+            auto term2 = 6*B*C*d*cos(2*(B*d+shift));
+            auto term3 = (-3*C+6*B*B*(C*d*d-Spectrum(1)))*sin(2*(B*d+shift));
+            return -A*(term1+term2+term3)/(24*B*B*B);
+      };
+
+      auto res = integrate(maxHeight*1.0e-9) - integrate(minHeight*1.0e-9);
+
+      // Multiply P(d)
+      res *= 1e9 / (maxHeight - minHeight);
+
+      return res;
+}
+
 #endif
 
 struct IridescenceParams
@@ -416,8 +445,8 @@ inline Spectrum IridescenceTerm(Float ct1, const IridescenceParams& params)
       return 0.5 * I;
 }
 
-inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params,
-                                Float minHeight, Float maxHeight)
+inline std::tuple<Spectrum, Spectrum> IridescenceMean(Float ct1, const IridescenceParams& params,
+                                                      Float minHeight, Float maxHeight)
 {
       const Spectrum &height = params.height;
       const Spectrum &eta1 = params.eta1;
@@ -456,7 +485,7 @@ inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params,
 
       /* Variables */
       Spectrum phi21p(0.), phi21s(0.), phi23p(0.), phi23s(0.),
-          r123s, r123p, Rs, cosP, irid, I(0.);
+          r123s, r123p, Rs, cosP, irid, I(0.), V(0.);
 
       /* Evaluate the phase shift */
       fresnelPhaseExact(Spectrum(ct1), Spectrum(1.0), eta2, Spectrum(0.0), phi21p, phi21s);
@@ -470,8 +499,10 @@ inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params,
 #if SPECTRUM_SAMPLES == 3
       if (spectralAntialiasing)
       {
-            Spectrum C0, Cm, Sm;
+            Spectrum C0, C1, S1;
             const Spectrum S0 = Spectrum(1.0);
+
+            auto tao = 2.0 * eta2 * ct2;
 
             /* Iridescence term using spectral antialiasing for Parallel polarization */
             // Reflectance term for m=0 (DC term amplitude)
@@ -480,14 +511,14 @@ inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params,
             I += C0 * S0;
 
             // Reflectance term for m>0 (pairs of diracs)
-            Cm = Rs - T121p;
-            for (int m = 1; m <= 2; ++m)
-            {
-                  Cm *= r123p;
-                  Sm = 2.0 * evalSensitivityMean(m, 2.0 * eta2 * ct2, m * (phi23p + phi21p),
-                                                 minHeight, maxHeight);
-                  I += Cm * Sm;
-            }
+            C1 = (Rs - T121p) * r123p;
+            auto mean = evalSensitivityMean(1, tao, (phi23p + phi21p), minHeight, maxHeight);
+            S1 = 2.0 * mean;
+            I += C1 * S1;
+
+            // Variance
+            auto meanSquare = evalSensitivitySquare(tao, (phi23p + phi21p), minHeight, maxHeight);
+            V += 4*C1*C1*(meanSquare - mean*mean);
 
             /* Iridescence term using spectral antialiasing for Perpendicular polarization */
             // Reflectance term for m=0 (DC term amplitude)
@@ -496,24 +527,33 @@ inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params,
             I += C0 * S0;
 
             // Reflectance term for m>0 (pairs of diracs)
-            Cm = Rs - T121s;
-            for (int m = 1; m <= 2; ++m)
-            {
-                  Cm *= r123s;
-                  Sm = 2.0 * evalSensitivityMean(m, 2.0 * eta2 * ct2, m * (phi23s + phi21s),
-                                                 minHeight, maxHeight);
-                  I += Cm * Sm;
-            }
+            C1 = (Rs - T121s) * r123s;
+            mean = evalSensitivityMean(1, tao, (phi23s + phi21s), minHeight, maxHeight);
+            S1 = 2.0 * mean;
+            I += C1 * S1;
+
+            // Variance
+            meanSquare = evalSensitivitySquare(tao, (phi23s + phi21s), minHeight, maxHeight);
+            V += 4*C1*C1*(meanSquare - mean*mean);
 
             // Ensure that the BRDF is non negative and convert it to RGB
-            const Float r = 2.3646381 * I[0] - 0.8965361 * I[1] - 0.4680737 * I[2];
-            const Float g = -0.5151664 * I[0] + 1.4264000 * I[1] + 0.0887608 * I[2];
-            const Float b = 0.0052037 * I[0] - 0.0144081 * I[1] + 1.0092106 * I[2];
+            Float r = 2.3646381 * I[0] - 0.8965361 * I[1] - 0.4680737 * I[2];
+            Float g = -0.5151664 * I[0] + 1.4264000 * I[1] + 0.0887608 * I[2];
+            Float b = 0.0052037 * I[0] - 0.0144081 * I[1] + 1.0092106 * I[2];
             I[0] = r;
             I[1] = g;
             I[2] = b;
 
             I.clampNegative();
+
+            r = 2.3646381 * V[0] - 0.8965361 * V[1] - 0.4680737 * V[2];
+            g = -0.5151664 * V[0] + 1.4264000 * V[1] + 0.0887608 * V[2];
+            b = 0.0052037 * V[0] - 0.0144081 * V[1] + 1.0092106 * V[2];
+            V[0] = r;
+            V[1] = g;
+            V[2] = b;
+
+            V.clampNegative();
       }
       else
       {
@@ -523,7 +563,7 @@ inline Spectrum IridescenceMean(Float ct1, const IridescenceParams& params,
       }
 #endif
 
-      return 0.5 * I;
+      return std::make_tuple(0.5*I, 0.5*V);
 }
 
 /* Static data: define the tabulated values for the Fourier Transform of
