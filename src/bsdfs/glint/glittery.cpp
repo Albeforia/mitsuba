@@ -219,7 +219,7 @@ class Glittery : public BSDF
         Spectrum mean, variance;
         std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, H), params, m_minHeight, m_maxHeight);
         // SLog(EInfo, "mean: %f, %f, %f", mean[0], mean[1], mean[2]);
-        // SLog(EInfo, "var: %f, %f, %f", variance[0], variance[1], variance[2]);
+        // SLog(EInfo, "var: %.16f, %.16f, %.16f", variance[0], variance[1], variance[2]);
 
         /* Smith's shadow-masking function */
         const Float G = distr.G(bRec.wi, bRec.wo, H);
@@ -227,26 +227,15 @@ class Glittery : public BSDF
         /* Calculate the total amount of reflection */
         if (discrete)
         {
-            Float sqrt_n = std::sqrt(D * m_totalFacets);
-            auto stddev = sqrt(variance);
-            std::normal_distribution<Float> nd_r(mean[0], stddev[0]/sqrt_n);
-            std::normal_distribution<Float> nd_g(mean[1], stddev[1]/sqrt_n);
-            std::normal_distribution<Float> nd_b(mean[2], stddev[2]/sqrt_n);
-
-            Spectrum F(0.);
-            std::mt19937 gen(std::random_device{}());
-            F[0] = nd_r(gen);
-            F[1] = nd_g(gen);
-            F[2] = nd_b(gen);
-            F.clampNegative();
+            Spectrum F = sampleF(D * m_totalFacets, mean, variance);
             F *= m_specularReflectance->eval(bRec.its);
 
             return dot(bRec.wi, H) * F * D * G /
-                    (pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                   (pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
         }
         else
         {
-            return  I * D * G / (4.0f * Frame::cosTheta(bRec.wi));
+            return I * D * G / (4.0f * Frame::cosTheta(bRec.wi));
         }
     }
 
@@ -337,18 +326,7 @@ class Glittery : public BSDF
         {
             if (discrete)
             {
-                Float sqrt_n = std::sqrt(D * m_totalFacets);
-                auto stddev = sqrt(variance);
-                std::normal_distribution<Float> nd_r(mean[0], stddev[0]/sqrt_n);
-                std::normal_distribution<Float> nd_g(mean[1], stddev[1]/sqrt_n);
-                std::normal_distribution<Float> nd_b(mean[2], stddev[2]/sqrt_n);
-
-                Spectrum F(0.);
-                std::mt19937 gen(std::random_device{}());
-                F[0] = nd_r(gen);
-                F[1] = nd_g(gen);
-                F[2] = nd_b(gen);
-                F.clampNegative();
+                Spectrum F = sampleF(D * m_totalFacets, mean, variance);
                 F *= m_specularReflectance->eval(bRec.its);
 
                 auto iDotm = dot(bRec.wi, m);
@@ -423,18 +401,7 @@ class Glittery : public BSDF
         {
             if (discrete)
             {
-                Float sqrt_n = std::sqrt(D * m_totalFacets);
-                auto stddev = sqrt(variance);
-                std::normal_distribution<Float> nd_r(mean[0], stddev[0]/sqrt_n);
-                std::normal_distribution<Float> nd_g(mean[1], stddev[1]/sqrt_n);
-                std::normal_distribution<Float> nd_b(mean[2], stddev[2]/sqrt_n);
-
-                Spectrum F(0.);
-                std::mt19937 gen(std::random_device{}());
-                F[0] = nd_r(gen);
-                F[1] = nd_g(gen);
-                F[2] = nd_b(gen);
-                F.clampNegative();
+                Spectrum F = sampleF(D * m_totalFacets, mean, variance);
                 F *= m_specularReflectance->eval(bRec.its);
 
                 auto iDotm = dot(bRec.wi, m);
@@ -599,6 +566,31 @@ class Glittery : public BSDF
         SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
         value = distr.eval(H, pixel, scs, integrations, sampleCount);
         return true;
+    }
+
+    // sample mean of iridescence from a normal distribution
+    Spectrum sampleF(int n, const Spectrum &mean, const Spectrum &variance) const
+    {
+        static std::mt19937 gen(std::random_device{}());
+
+        Spectrum F(0.);
+
+        std::normal_distribution<Float> nd_x(mean[0], std::sqrt(variance[0] / n));
+        std::normal_distribution<Float> nd_y(mean[1], std::sqrt(variance[1] / n));
+        std::normal_distribution<Float> nd_z(mean[2], std::sqrt(variance[2] / n));
+        F[0] = nd_x(gen);
+        F[1] = nd_y(gen);
+        F[2] = nd_z(gen);
+        // convert to RGB
+        Float r = 2.3646381 * F[0] - 0.8965361 * F[1] - 0.4680737 * F[2];
+        Float g = -0.5151664 * F[0] + 1.4264000 * F[1] + 0.0887608 * F[2];
+        Float b = 0.0052037 * F[0] - 0.0144081 * F[1] + 1.0092106 * F[2];
+        F[0] = r;
+        F[1] = g;
+        F[2] = b;
+        F.clampNegative();
+
+        return F;
     }
 
     std::string to_string(const Parallelogram &paral) const

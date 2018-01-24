@@ -536,23 +536,7 @@ inline std::tuple<Spectrum, Spectrum> IridescenceMean(Float ct1, const Iridescen
             meanSquare = evalSensitivitySquare(tao, (phi23s + phi21s), minHeight, maxHeight);
             V += 4*C1*C1*(meanSquare - mean*mean);
 
-            // Ensure that the BRDF is non negative and convert it to RGB
-            Float r = 2.3646381 * I[0] - 0.8965361 * I[1] - 0.4680737 * I[2];
-            Float g = -0.5151664 * I[0] + 1.4264000 * I[1] + 0.0887608 * I[2];
-            Float b = 0.0052037 * I[0] - 0.0144081 * I[1] + 1.0092106 * I[2];
-            I[0] = r;
-            I[1] = g;
-            I[2] = b;
-
             I.clampNegative();
-
-            r = 2.3646381 * V[0] - 0.8965361 * V[1] - 0.4680737 * V[2];
-            g = -0.5151664 * V[0] + 1.4264000 * V[1] + 0.0887608 * V[2];
-            b = 0.0052037 * V[0] - 0.0144081 * V[1] + 1.0092106 * V[2];
-            V[0] = r;
-            V[1] = g;
-            V[2] = b;
-
             V.clampNegative();
       }
       else
