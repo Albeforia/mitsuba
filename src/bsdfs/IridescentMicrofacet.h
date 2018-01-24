@@ -273,6 +273,23 @@ inline Spectrum evalSensitivitySquare(Spectrum tao, Spectrum shift, Float minHei
 
       auto res = integrate(maxHeight*1.0e-9) - integrate(minHeight*1.0e-9);
 
+      // second part of x
+      auto Ax = 2 * M_PI * (9.7470e-14/1.0685e-7) * (9.7470e-14/1.0685e-7) * 4.5282e+09;
+      auto Bx = 2 * M_PI * 2.2399e+06 * tao[0];
+      auto Cx = M_PI * tao[0];
+      Cx *= 4 * Cx * 4.5282e+09;
+
+      auto integrateX1 = [&Ax, &Bx, &Cx, &shift] (Float d) {
+            auto term1 = 4*Bx*Bx*(Bx*d*(Cx*d*d-3)-3*shift[0]);
+            auto term2 = 6*Bx*Cx*d*std::cos(2*(Bx*d+shift[0]));
+            auto term3 = (-3*Cx+6*Bx*Bx*(Cx*d*d-1))*std::sin(2*(Bx*d+shift[0]));
+            return -Ax*(term1+term2+term3)/(24*Bx*Bx*Bx);
+      };
+
+      res[0] += integrateX1(maxHeight*1.0e-9) - integrateX1(minHeight*1.0e-9);
+
+      // ignore cross term
+
       // Multiply P(d)
       res *= 1e9 / (maxHeight - minHeight);
 
