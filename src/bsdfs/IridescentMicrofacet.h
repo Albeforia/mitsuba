@@ -129,9 +129,11 @@ void fresnelConductorExact(Float cosThetaI,
 #if SPECTRUM_SAMPLES == 3
 /* Gaussian fits of the Fourier Transforms of the normalized XYZ profiles
  */
-const Float _val[3] = {5.4856e-13, 4.4201e-13, 5.2481e-13};
+// const Float _val[3] = {5.4856e-13, 4.4201e-13, 5.2481e-13};
+const Float _val[3] = {3.8789e-13, 3.1255e-13, 3.7110e-13};
 const Float _pos[3] = {1.6810e+06, 1.7953e+06, 2.2084e+06};
-const Float _var[3] = {4.3278e+09, 9.3046e+09, 6.6121e+09};
+// const Float _var[3] = {4.3278e+09, 9.3046e+09, 6.6121e+09};
+const Float _var[3] = {8.6556e+09, 1.8609e+10, 1.3224e+10};
 
 /* Tabulated version of the Fourier Transforms of the normalized XYZ
  * Arrays are defined at the end of the file. For each profile, we
@@ -160,9 +162,9 @@ inline Spectrum evalSensitivity(Spectrum OPD, Spectrum shift, bool useGaussianFi
 
             Spectrum xyz = val * sqrt(2 * M_PI * var) * cos(pos * phase + shift) *
                            exp(-phase * phase * var / 2);
-            xyz[0] += 9.7470e-14 * std::sqrt(2 * M_PI * 4.5282e+09) *
+            xyz[0] += 6.8922e-14 * std::sqrt(2 * M_PI * 9.0564e+09) *
                       std::cos(2.2399e+06 * phase[0] + shift[0]) *
-                      std::exp(-4.5282e+09 * phase[0] * phase[0] / 2);
+                      std::exp(-9.0564e+09 * phase[0] * phase[0] / 2);
             return xyz / 1.0685e-7;
       }
       else
@@ -231,10 +233,10 @@ inline Spectrum evalSensitivityMean(int m, Spectrum tao, Spectrum shift, Float m
       auto res = integrate(maxHeight*1.0e-9) - integrate(minHeight*1.0e-9);
 
       // second part of x
-      auto Ax = 9.7470e-14 * std::sqrt(2 * M_PI * 4.5282e+09);
+      auto Ax = 6.8922e-14 * std::sqrt(2 * M_PI * 9.0564e+09);
       auto Bx = 2 * M_PI * m * 2.2399e+06 * tao[0];
       auto Cx = M_PI * m * tao[0];
-      Cx *= 2 * Cx * 4.5282e+09;
+      Cx *= 2 * Cx * 9.0564e+09;
 
       auto integrateX = [&Ax, &Bx, &Cx, &shift] (Float d) {
             auto term1 = 2*Bx*Cx*d*std::cos(Bx*d+shift[0]);
@@ -274,10 +276,10 @@ inline Spectrum evalSensitivitySquare(Spectrum tao, Spectrum shift, Float minHei
       auto res = integrate(maxHeight*1.0e-9) - integrate(minHeight*1.0e-9);
 
       // second part of x
-      auto Ax = 2 * M_PI * (9.7470e-14/1.0685e-7) * (9.7470e-14/1.0685e-7) * 4.5282e+09;
+      auto Ax = 2 * M_PI * (6.8922e-14/1.0685e-7) * (6.8922e-14/1.0685e-7) * 9.0564e+09;
       auto Bx = 2 * M_PI * 2.2399e+06 * tao[0];
       auto Cx = M_PI * tao[0];
-      Cx *= 4 * Cx * 4.5282e+09;
+      Cx *= 4 * Cx * 9.0564e+09;
 
       auto integrateX1 = [&Ax, &Bx, &Cx, &shift] (Float d) {
             auto term1 = 4*Bx*Bx*(Bx*d*(Cx*d*d-3)-3*shift[0]);
