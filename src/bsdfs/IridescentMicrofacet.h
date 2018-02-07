@@ -269,31 +269,39 @@ inline Spectrum evalSensitivitySquare(Spectrum tao, Spectrum shift, Float minHei
       pos.fromLinearRGB(_pos[0], _pos[1], _pos[2]);
       var.fromLinearRGB(_var[0], _var[1], _var[2]);
 
-      auto A = 2 * M_PI * (val/1.0685e-7) * (val/1.0685e-7) * var;
-      auto B = 2 * M_PI * pos * tao;
+      auto A = 2 * M_PI * var * (val/1.0685e-7) * (val/1.0685e-7);
+      auto B = 2 * M_PI * tao * pos;
       auto C = M_PI * tao;
       C *= 4 * C * var;
+      auto CB2 = var / sqr(pos);
 
-      auto integrate = [&A, &B, &C, &shift] (Float d) {
-            auto term1 = 4*B*B*(B*d*(C*d*d-Spectrum(3))-3*shift);
-            auto term2 = 6*B*C*d*cos(2*(B*d+shift));
-            auto term3 = (-3*C+6*B*B*(C*d*d-Spectrum(1)))*sin(2*(B*d+shift));
-            return -A*(term1+term2+term3)/(24*B*B*B);
+      auto integrate = [&A, &B, &C, &CB2, &shift] (Float d) {
+            auto sinv = sin(2*(B*d + shift));
+            auto cosv = cos(2*(B*d + shift));
+            auto Cd2 = C*sqr(d);
+            auto poly_term = Spectrum(d/2) - Cd2*d/6 + sqr(Cd2)*d/20 + shift/(2*B);
+            auto cos_term = 0.25*CB2*d*cosv*(Cd2-1.5*CB2-Spectrum(1));
+            auto sin_term = sinv*(Spectrum(1)+0.5*CB2+0.75*sqr(CB2)+0.5*sqr(Cd2)-Cd2-1.5*CB2*Cd2)/(4*B);
+            return A*(poly_term + sin_term + cos_term);
       };
 
       auto res = integrate(maxHeight*1.0e-9) - integrate(minHeight*1.0e-9);
 
       // second part of x
-      auto Ax = 2 * M_PI * (6.8922e-14/1.0685e-7) * (6.8922e-14/1.0685e-7) * 9.0564e+09;
-      auto Bx = 2 * M_PI * 2.2399e+06 * tao[0];
+      auto Ax = 2 * M_PI * 9.0564e+09 * (6.8922e-14/1.0685e-7) * (6.8922e-14/1.0685e-7);
+      auto Bx = 2 * M_PI * tao[0] * 2.2399e+06;
       auto Cx = M_PI * tao[0];
       Cx *= 4 * Cx * 9.0564e+09;
+      auto CB2x = 9.0564e+09 / sqr(2.2399e+06);
 
-      auto integrateX1 = [&Ax, &Bx, &Cx, &shift] (Float d) {
-            auto term1 = 4*Bx*Bx*(Bx*d*(Cx*d*d-3)-3*shift[0]);
-            auto term2 = 6*Bx*Cx*d*std::cos(2*(Bx*d+shift[0]));
-            auto term3 = (-3*Cx+6*Bx*Bx*(Cx*d*d-1))*std::sin(2*(Bx*d+shift[0]));
-            return -Ax*(term1+term2+term3)/(24*Bx*Bx*Bx);
+      auto integrateX1 = [&Ax, &Bx, &Cx, &CB2x, &shift] (Float d) {
+            auto sinv = std::sin(2*(Bx*d + shift[0]));
+            auto cosv = std::cos(2*(Bx*d + shift[0]));
+            auto Cd2 = Cx*sqr(d);
+            auto poly_term = d/2 - Cd2*d/6 + sqr(Cd2)*d/20 + shift[0]/(2*Bx);
+            auto cos_term = 0.25*CB2x*d*cosv*(Cd2-1.5*CB2x-1);
+            auto sin_term = sinv*(1+0.5*CB2x+0.75*sqr(CB2x)+0.5*sqr(Cd2)-Cd2-1.5*CB2x*Cd2)/(4*Bx);
+            return Ax*(poly_term + sin_term + cos_term);
       };
 
       res[0] += integrateX1(maxHeight*1.0e-9) - integrateX1(minHeight*1.0e-9);
