@@ -6,7 +6,6 @@
 #include "../ior.h"
 
 #define triangleArea(p0, p1, p2) (std::abs((p0).x * ((p1).y - (p2).y) + (p1).x * ((p2).y - (p0).y) + (p2).x * ((p0).y - (p1).y)) / 2.0f)
-#define GAMMA_RADIUS 0.0873f
 
 MTS_NAMESPACE_BEGIN
 
@@ -40,6 +39,8 @@ class Glittery : public BSDF
 
         m_eta = props.getSpectrum("eta", intEta) / extEta;
         m_k = props.getSpectrum("k", intK) / extEta;
+        m_queryRadius = props.getFloat("queryRadius", 5.0f);
+        m_queryRadius = m_queryRadius * M_PI / 180.0f;
 
         DiscreteMicrofacetDistribution distr(props);
         m_type = distr.getType();
@@ -168,7 +169,7 @@ class Glittery : public BSDF
         if (discrete)
         {
             model = dot(bRec.wi, H) * D * G /
-                    (pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                    (pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
         }
         else
         {
@@ -257,7 +258,7 @@ class Glittery : public BSDF
             {
                 auto iDotm = dot(bRec.wi, m);
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                         (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                         (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
             }
             else
             {
@@ -319,7 +320,7 @@ class Glittery : public BSDF
             {
                 auto iDotm = dot(bRec.wi, m);
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                         (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                         (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
             }
             else
             {
@@ -383,6 +384,7 @@ class Glittery : public BSDF
     ref<Texture> m_specularReflectance;
     ref<Texture> m_alphaU, m_alphaV;
     uint32_t m_totalFacets;
+    Float m_queryRadius;
     bool m_sampleVisible;
     Spectrum m_eta, m_k;
 
@@ -461,7 +463,7 @@ class Glittery : public BSDF
         auto pixel = extentsToPoint(center, extentU, extentV);
         pixelArea = 2 * triangleArea(pixel[0], pixel[2], pixel[1]);
         size_t sampleCount = bRec.sampler == nullptr ? 1 : bRec.sampler->getSampleCount();
-        SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
+        SphericalConicSection scs(bRec.wi, bRec.wo, m_queryRadius);
         value = distr.eval(H, pixel, scs, integrations, sampleCount);
         return true;
     }
