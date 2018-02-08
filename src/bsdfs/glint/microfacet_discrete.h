@@ -235,7 +235,8 @@ class DiscreteMicrofacetDistribution
               p2 = integrations.at("02"),
               p3 = integrations.at("03");
         auto sum = p0 + p1 + p2 + p3;
-        auto root_counts = multinomial(m_totalFacets, std::array<float, 4>{p0 / sum, p1 / sum, p2 / sum, p3 / sum});
+        std::array<float, 4> pv{p0 / sum, p1 / sum, p2 / sum, p3 / sum};
+        auto root_counts = multinomial(m_totalFacets, pv);
         queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, 1, 0), "00", root_counts[0]);
         queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, 1, 0), "01", root_counts[1]);
         queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, -1, 0), "02", root_counts[2]);
