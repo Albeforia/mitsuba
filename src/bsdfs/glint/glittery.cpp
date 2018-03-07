@@ -297,6 +297,14 @@ class Glittery : public BSDF
         bRec.sampledComponent = 0;
         bRec.sampledType = EGlossyReflection;
 
+        // sample actual wo in the cone centered at bRec.wo
+        auto diskSample = sampleDiskUniform(sample);
+        Float r = std::tan(m_queryRadius);
+        auto wo = normalize(Vector(r*diskSample.x, r*diskSample.y, 1.0f));
+        wo = Transform::rotate(cross(Vector(0, 0, 1), bRec.wo),
+                               std::acos(Frame::cosTheta(bRec.wo))/M_PI * 180.0f)(wo);
+        bRec.wo = wo;
+
         /* Side check */
         if (Frame::cosTheta(bRec.wo) <= 0)
             return Spectrum(0.0f);
@@ -466,6 +474,15 @@ class Glittery : public BSDF
         SphericalConicSection scs(bRec.wi, bRec.wo, m_queryRadius);
         value = distr.eval(H, pixel, scs, integrations, sampleCount);
         return true;
+    }
+
+    Point2 sampleDiskUniform(const Point2 &sample) const
+    {
+        Float angle = (2.0f * M_PI) * sample.x;
+        Float r = std::sqrt(sample.y);
+        Float x = r * std::cos(angle);
+        Float y = r * std::sin(angle);
+        return Point2(x, y);
     }
 
     std::string to_string(const Parallelogram &paral) const
