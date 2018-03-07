@@ -61,6 +61,19 @@ struct SphericalTriangle
         return A + B + C - M_PI;
     }
 
+    bool contain(const Vector &p) const
+    {
+        SphericalTriangle tri0(p, m_vertices[0], m_vertices[1]);
+        SphericalTriangle tri1(p, m_vertices[1], m_vertices[2]);
+        SphericalTriangle tri2(p, m_vertices[0], m_vertices[2]);
+        Float excessSum = tri0.excess() + tri1.excess() + tri2.excess();
+        if (abs(excess() - excessSum) < 0.001)
+        {
+            return true;
+        }
+        return false;
+    }
+
     std::array<SphericalTriangle, 4> split() const
     {
         std::array<SphericalTriangle, 4> children;
