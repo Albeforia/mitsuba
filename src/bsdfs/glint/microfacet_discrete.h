@@ -235,7 +235,8 @@ class DiscreteMicrofacetDistribution
               p2 = integrations.at("02"),
               p3 = integrations.at("03");
         auto sum = p0 + p1 + p2 + p3;
-        auto root_counts = multinomial(m_totalFacets, std::array<float, 4>{p0 / sum, p1 / sum, p2 / sum, p3 / sum});
+        std::array<float, 4> pv{p0 / sum, p1 / sum, p2 / sum, p3 / sum};
+        auto root_counts = multinomial(m_totalFacets, pv);
         queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, 1, 0), "00", root_counts[0]);
         queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, 1, 0), "01", root_counts[1]);
         queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, -1, 0), "02", root_counts[2]);
@@ -355,6 +356,10 @@ class DiscreteMicrofacetDistribution
         Float sinPhiM, cosPhiM;
         Float alphaSqr;
 
+        // scaled roughness
+        Float alphaU = 2.0f * m_alphaU;
+        Float alphaV = 2.0f * m_alphaV;
+
         switch (m_type)
         {
         case EBeckmann:
@@ -365,17 +370,17 @@ class DiscreteMicrofacetDistribution
                 /* Sample phi component (isotropic case) */
                 math::sincos((2.0f * M_PI) * sample.y, &sinPhiM, &cosPhiM);
 
-                alphaSqr = m_alphaU * m_alphaU;
+                alphaSqr = alphaU * alphaU;
             }
             else
             {
                 /* Sample phi component (anisotropic case) */
-                Float phiM = std::atan(m_alphaV / m_alphaU *
+                Float phiM = std::atan(alphaV / alphaU *
                                        std::tan(M_PI + 2 * M_PI * sample.y)) +
                              M_PI * std::floor(2 * sample.y + 0.5f);
                 math::sincos(phiM, &sinPhiM, &cosPhiM);
 
-                Float cosSc = cosPhiM / m_alphaU, sinSc = sinPhiM / m_alphaV;
+                Float cosSc = cosPhiM / alphaU, sinSc = sinPhiM / alphaV;
                 alphaSqr = 1.0f / (cosSc * cosSc + sinSc * sinSc);
             }
 
@@ -384,7 +389,7 @@ class DiscreteMicrofacetDistribution
             cosThetaM = 1.0f / std::sqrt(1.0f + tanThetaMSqr);
 
             /* Compute probability density of the sampled position */
-            pdf = (1.0f - sample.x) / (M_PI * m_alphaU * m_alphaV * cosThetaM * cosThetaM * cosThetaM);
+            pdf = (1.0f - sample.x) / (M_PI * alphaU * alphaV * cosThetaM * cosThetaM * cosThetaM);
         }
         break;
 

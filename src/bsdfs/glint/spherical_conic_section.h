@@ -47,20 +47,21 @@ struct SphericalConicSection
             pb = 2 * dot(C.preMult(d), c);
             pc = dot(C.preMult(c), c);
             // true iff there is a root in [-1,1]
-            if ((pa - pb + pc) * (pa + pb + pc) < 0)
+            if ((pa - pb + pc) * (pa + pb + pc) <= 0)
             {
                 return true;
             }
             else
             {
                 axis = -pb / (2 * pa);
-                if (axis < -1.0f || axis > 2.0f || pa * pc - pb * pb * 0.25f >= 0)
+                if (-1.0f <= axis && axis <= 1.0f && pb*pb-4.0f*pa*pc >= 0 &&
+                    pa*(pa + pb + pc) > 0)
                 {
-                    continue;
+                    return true;
                 }
                 else
                 {
-                    return true;
+                    continue;
                 }
             }
         }
@@ -79,6 +80,11 @@ struct SphericalConicSection
             return 2;
         }
         else if (intersect(tri))
+        {
+            return 1;
+        }
+        // now it's time to test if the tri contains this scs
+        else if (tri.contain(normalize(m_wo + m_wi)))
         {
             return 1;
         }

@@ -8,7 +8,6 @@
 #include "../IridescentMicrofacet.h"
 
 #define triangleArea(p0, p1, p2) (std::abs((p0).x * ((p1).y - (p2).y) + (p1).x * ((p2).y - (p0).y) + (p2).x * ((p0).y - (p1).y)) / 2.0f)
-#define GAMMA_RADIUS 0.0873f
 
 MTS_NAMESPACE_BEGIN
 
@@ -87,6 +86,9 @@ class Glittery : public BSDF
         // m_k = props.getSpectrum("k", intK);
         m_k = new ConstantSpectrumTexture(props.getSpectrum("k", intK));
         m_eta2 = props.getSpectrum("filmEta", Spectrum(filmEta));
+        m_eta = props.getSpectrum("eta", intEta) / extEta;
+        m_queryRadius = props.getFloat("queryRadius", 5.0f);
+        m_queryRadius = m_queryRadius * M_PI / 180.0f;
 
         DiscreteMicrofacetDistribution distr(props);
         m_type = distr.getType();
@@ -230,7 +232,7 @@ class Glittery : public BSDF
             F *= m_specularReflectance->eval(bRec.its);
 
             return dot(bRec.wi, H) * F * D * G /
-                   (pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                   (pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
         }
         else
         {
@@ -330,7 +332,7 @@ class Glittery : public BSDF
 
                 auto iDotm = dot(bRec.wi, m);
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                         (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                         (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
                 return F * weight;
             }
             else
@@ -369,6 +371,14 @@ class Glittery : public BSDF
         bRec.sampledComponent = 0;
         bRec.sampledType = EGlossyReflection;
 
+        // sample actual wo in the cone centered at bRec.wo
+        auto diskSample = sampleDiskUniform(sample);
+        Float r = std::tan(m_queryRadius);
+        auto wo = normalize(Vector(r*diskSample.x, r*diskSample.y, 1.0f));
+        wo = Transform::rotate(cross(Vector(0, 0, 1), bRec.wo),
+                               std::acos(Frame::cosTheta(bRec.wo))/M_PI * 180.0f)(wo);
+        bRec.wo = wo;
+
         /* Side check */
         if (Frame::cosTheta(bRec.wo) <= 0)
             return Spectrum(0.0f);
@@ -405,7 +415,7 @@ class Glittery : public BSDF
 
                 auto iDotm = dot(bRec.wi, m);
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                         (pdf * pixelArea * (M_PI * (1 - cosf(GAMMA_RADIUS))) * Frame::cosTheta(bRec.wi));
+                         (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
                 /* Jacobian of the half-direction mapping */
                 pdf /= 4.0f * dot(bRec.wo, m);
                 return F * weight;
@@ -470,6 +480,7 @@ class Glittery : public BSDF
     ref<Texture> m_specularReflectance;
     ref<Texture> m_alphaU, m_alphaV;
     uint32_t m_totalFacets;
+    Float m_queryRadius;
     bool m_sampleVisible;
     Spectrum m_eta;
     ref<Texture> m_k;
@@ -561,7 +572,7 @@ class Glittery : public BSDF
         auto pixel = extentsToPoint(center, extentU, extentV);
         pixelArea = 2 * triangleArea(pixel[0], pixel[2], pixel[1]);
         size_t sampleCount = bRec.sampler == nullptr ? 1 : bRec.sampler->getSampleCount();
-        SphericalConicSection scs(bRec.wi, bRec.wo, GAMMA_RADIUS);
+        SphericalConicSection scs(bRec.wi, bRec.wo, m_queryRadius);
         value = distr.eval(H, pixel, scs, integrations, sampleCount);
         return true;
     }
@@ -589,6 +600,15 @@ class Glittery : public BSDF
         F.clampNegative();
 
         return F;
+    }
+
+    Point2 sampleDiskUniform(const Point2 &sample) const
+    {
+        Float angle = (2.0f * M_PI) * sample.x;
+        Float r = std::sqrt(sample.y);
+        Float x = r * std::cos(angle);
+        Float y = r * std::sin(angle);
+        return Point2(x, y);
     }
 
     std::string to_string(const Parallelogram &paral) const
