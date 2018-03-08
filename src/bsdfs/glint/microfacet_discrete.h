@@ -357,8 +357,8 @@ class DiscreteMicrofacetDistribution
         Float alphaSqr;
 
         // scaled roughness
-        Float alphaU = 2.0f * m_alphaU;
-        Float alphaV = 2.0f * m_alphaV;
+        Float alphaU = 3.0f * m_alphaU;
+        Float alphaV = 3.0f * m_alphaV;
 
         switch (m_type)
         {
