@@ -217,8 +217,8 @@ class Glittery : public BSDF
 		   roughness values at the current surface position. */
         DiscreteMicrofacetDistribution distr(
             m_type,
-            m_alphaU->eval(bRec.its).average(),
-            m_alphaV->eval(bRec.its).average(),
+            2.0 * m_alphaU->eval(bRec.its).average(),
+            2.0 * m_alphaV->eval(bRec.its).average(),
             m_totalFacets,
             m_sampleVisible);
 
@@ -280,8 +280,8 @@ class Glittery : public BSDF
 		   roughness values at the current surface position. */
         DiscreteMicrofacetDistribution distr(
             m_type,
-            m_alphaU->eval(bRec.its).average(),
-            m_alphaV->eval(bRec.its).average(),
+            2.0 * m_alphaU->eval(bRec.its).average(),
+            2.0 * m_alphaV->eval(bRec.its).average(),
             m_totalFacets,
             m_sampleVisible);
 

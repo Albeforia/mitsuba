@@ -358,10 +358,6 @@ class DiscreteMicrofacetDistribution
         Float sinPhiM, cosPhiM;
         Float alphaSqr;
 
-        // scaled roughness
-        Float alphaU = 3.0f * m_alphaU;
-        Float alphaV = 3.0f * m_alphaV;
-
         switch (m_type)
         {
         case EBeckmann:
@@ -372,17 +368,17 @@ class DiscreteMicrofacetDistribution
                 /* Sample phi component (isotropic case) */
                 math::sincos((2.0f * M_PI) * sample.y, &sinPhiM, &cosPhiM);
 
-                alphaSqr = alphaU * alphaU;
+                alphaSqr = m_alphaU * m_alphaU;
             }
             else
             {
                 /* Sample phi component (anisotropic case) */
-                Float phiM = std::atan(alphaV / alphaU *
+                Float phiM = std::atan(m_alphaV / m_alphaU *
                                        std::tan(M_PI + 2 * M_PI * sample.y)) +
                              M_PI * std::floor(2 * sample.y + 0.5f);
                 math::sincos(phiM, &sinPhiM, &cosPhiM);
 
-                Float cosSc = cosPhiM / alphaU, sinSc = sinPhiM / alphaV;
+                Float cosSc = cosPhiM / m_alphaU, sinSc = sinPhiM / m_alphaV;
                 alphaSqr = 1.0f / (cosSc * cosSc + sinSc * sinSc);
             }
 
@@ -391,7 +387,7 @@ class DiscreteMicrofacetDistribution
             cosThetaM = 1.0f / std::sqrt(1.0f + tanThetaMSqr);
 
             /* Compute probability density of the sampled position */
-            pdf = (1.0f - sample.x) / (M_PI * alphaU * alphaV * cosThetaM * cosThetaM * cosThetaM);
+            pdf = (1.0f - sample.x) / (M_PI * m_alphaU * m_alphaV * cosThetaM * cosThetaM * cosThetaM);
         }
         break;
 
