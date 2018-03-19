@@ -248,6 +248,7 @@ class Glittery : public BSDF
         bool discrete = evaluateD(distr, bRec, D, pixelArea);
 
         Float weight;
+        /*
         if (m_sampleVisible)
         {
             weight = distr.smithG1(bRec.wo, m);
@@ -264,6 +265,17 @@ class Glittery : public BSDF
             {
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
             }
+        }
+        */
+        if (discrete)
+        {
+            auto iDotm = dot(bRec.wi, m);
+            weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
+                     (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
+        }
+        else
+        {
+            weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
         }
 
         return F * weight;
@@ -300,9 +312,9 @@ class Glittery : public BSDF
         // sample actual wo in the cone centered at bRec.wo
         auto diskSample = sampleDiskUniform(sample);
         Float r = std::tan(m_queryRadius);
-        auto wo = normalize(Vector(r*diskSample.x, r*diskSample.y, 1.0f));
+        auto wo = normalize(Vector(r * diskSample.x, r * diskSample.y, 1.0f));
         wo = Transform::rotate(cross(Vector(0, 0, 1), bRec.wo),
-                               std::acos(Frame::cosTheta(bRec.wo))/M_PI * 180.0f)(wo);
+                               std::acos(Frame::cosTheta(bRec.wo)) / M_PI * 180.0f)(wo);
         bRec.wo = wo;
 
         /* Side check */
@@ -318,6 +330,7 @@ class Glittery : public BSDF
         bool discrete = evaluateD(distr, bRec, D, pixelArea);
 
         Float weight;
+        /*
         if (m_sampleVisible)
         {
             weight = distr.smithG1(bRec.wo, m);
@@ -334,6 +347,17 @@ class Glittery : public BSDF
             {
                 weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
             }
+        }
+        */
+        if (discrete)
+        {
+            auto iDotm = dot(bRec.wi, m);
+            weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
+                     (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
+        }
+        else
+        {
+            weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
         }
 
         /* Jacobian of the half-direction mapping */
