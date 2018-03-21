@@ -1,4 +1,5 @@
 #include <mitsuba/core/fresolver.h>
+#include <mitsuba/core/warp.h>
 #include <mitsuba/render/bsdf.h>
 #include <mitsuba/hw/basicshader.h>
 #include <unordered_map>
@@ -278,8 +279,8 @@ class Glittery : public BSDF
 		   roughness values at the current surface position. */
         DiscreteMicrofacetDistribution distr(
             m_type,
-            m_alphaU->eval(bRec.its).average(),
-            m_alphaV->eval(bRec.its).average(),
+            2.0 * m_alphaU->eval(bRec.its).average(),
+            2.0 * m_alphaV->eval(bRec.its).average(),
             m_totalFacets,
             m_sampleVisible);
 
@@ -296,6 +297,10 @@ class Glittery : public BSDF
         bRec.sampledComponent = 0;
         bRec.sampledType = EGlossyReflection;
 
+        // sample actual wo in the cone centered at bRec.wo
+        bRec.wo = Frame(bRec.wo).toWorld(
+            warp::squareToUniformCone(std::cos(m_queryRadius), sample));
+
         /* Side check */
         if (Frame::cosTheta(bRec.wo) <= 0)
             return Spectrum(0.0f);
@@ -319,27 +324,20 @@ class Glittery : public BSDF
         bool discrete = evaluateD(distr, bRec, D, pixelArea);
 
         Float weight;
-        if (m_sampleVisible)
+        if (discrete)
         {
-            weight = distr.smithG1(bRec.wo, m);
+            Spectrum F = sampleF(D * m_totalFacets, mean, variance);
+            F *= m_specularReflectance->eval(bRec.its);
+
+            auto iDotm = dot(bRec.wi, m);
+            weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
+                     (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
+            return F * weight;
         }
         else
         {
-            if (discrete)
-            {
-                Spectrum F = sampleF(D * m_totalFacets, mean, variance);
-                F *= m_specularReflectance->eval(bRec.its);
-
-                auto iDotm = dot(bRec.wi, m);
-                weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                         (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
-                return F * weight;
-            }
-            else
-            {
-                weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
-                return I * weight;
-            }
+            weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
+            return I * weight;
         }
     }
 
@@ -354,8 +352,8 @@ class Glittery : public BSDF
 		   roughness values at the current surface position. */
         DiscreteMicrofacetDistribution distr(
             m_type,
-            m_alphaU->eval(bRec.its).average(),
-            m_alphaV->eval(bRec.its).average(),
+            2.0 * m_alphaU->eval(bRec.its).average(),
+            2.0 * m_alphaV->eval(bRec.its).average(),
             m_totalFacets,
             m_sampleVisible);
 
@@ -372,12 +370,8 @@ class Glittery : public BSDF
         bRec.sampledType = EGlossyReflection;
 
         // sample actual wo in the cone centered at bRec.wo
-        auto diskSample = sampleDiskUniform(sample);
-        Float r = std::tan(m_queryRadius);
-        auto wo = normalize(Vector(r*diskSample.x, r*diskSample.y, 1.0f));
-        wo = Transform::rotate(cross(Vector(0, 0, 1), bRec.wo),
-                               std::acos(Frame::cosTheta(bRec.wo))/M_PI * 180.0f)(wo);
-        bRec.wo = wo;
+        bRec.wo = Frame(bRec.wo).toWorld(
+            warp::squareToUniformCone(std::cos(m_queryRadius), sample));
 
         /* Side check */
         if (Frame::cosTheta(bRec.wo) <= 0)
@@ -402,31 +396,24 @@ class Glittery : public BSDF
         bool discrete = evaluateD(distr, bRec, D, pixelArea);
 
         Float weight;
-        if (m_sampleVisible)
+        if (discrete)
         {
-            weight = distr.smithG1(bRec.wo, m);
+            Spectrum F = sampleF(D * m_totalFacets, mean, variance);
+            F *= m_specularReflectance->eval(bRec.its);
+
+            auto iDotm = dot(bRec.wi, m);
+            weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
+                     (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
+            /* Jacobian of the half-direction mapping */
+            pdf /= 4.0f * dot(bRec.wo, m);
+            return F * weight;
         }
         else
         {
-            if (discrete)
-            {
-                Spectrum F = sampleF(D * m_totalFacets, mean, variance);
-                F *= m_specularReflectance->eval(bRec.its);
-
-                auto iDotm = dot(bRec.wi, m);
-                weight = D * distr.G(bRec.wi, bRec.wo, m) * iDotm * iDotm /
-                         (pdf * pixelArea * (M_PI * (1 - cosf(m_queryRadius))) * Frame::cosTheta(bRec.wi));
-                /* Jacobian of the half-direction mapping */
-                pdf /= 4.0f * dot(bRec.wo, m);
-                return F * weight;
-            }
-            else
-            {
-                weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
-                /* Jacobian of the half-direction mapping */
-                pdf /= 4.0f * dot(bRec.wo, m);
-                return I * weight;
-            }
+            weight = D * distr.G(bRec.wi, bRec.wo, m) * dot(bRec.wi, m) / (pdf * Frame::cosTheta(bRec.wi));
+            /* Jacobian of the half-direction mapping */
+            pdf /= 4.0f * dot(bRec.wo, m);
+            return I * weight;
         }
     }
 

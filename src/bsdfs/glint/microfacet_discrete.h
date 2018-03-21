@@ -228,6 +228,8 @@ class DiscreteMicrofacetDistribution
                             const std::unordered_map<std::string, Float> &integrations,
                             size_t sampleCount) const
     {
+        static unsigned int seed = 0;
+
         uint32_t count = 0;
         std::queue<Node> queue;
         Float p0 = integrations.at("00"),
@@ -236,7 +238,7 @@ class DiscreteMicrofacetDistribution
               p3 = integrations.at("03");
         auto sum = p0 + p1 + p2 + p3;
         std::array<float, 4> pv{p0 / sum, p1 / sum, p2 / sum, p3 / sum};
-        auto root_counts = multinomial(m_totalFacets, pv);
+        auto root_counts = multinomial(m_totalFacets, pv, ++seed);
         queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, 1, 0), "00", root_counts[0]);
         queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(-1, 0, 0), Vector(0, 1, 0), "01", root_counts[1]);
         queue.emplace(Point2(0, 0), Point2(1, 1), Vector(0, 0, 1), Vector(1, 0, 0), Vector(0, -1, 0), "02", root_counts[2]);
@@ -258,7 +260,7 @@ class DiscreteMicrofacetDistribution
                 if ((AVG_QUERY_AREA / sampleCount) / aabbArea(curr.m_spatial) < AVG_QUERY_SOLID_ANGLE / curr.m_directional.excess())
                 {
                     std::array<float, 4> pv{0.25f, 0.25f, 0.25f, 0.25f};
-                    auto counts = multinomial(curr.m_count, pv);
+                    auto counts = multinomial(curr.m_count, pv, ++seed);
                     auto min = curr.m_spatial.min;
                     auto max = curr.m_spatial.max;
                     auto center = (min + max) * 0.5f;
@@ -275,7 +277,7 @@ class DiscreteMicrofacetDistribution
                     Float p3 = integrations.count(curr.m_triID + "3") == 0 ? 0 : integrations.at(curr.m_triID + "3");
                     auto sum = p0 + p1 + p2 + p3;
                     std::array<float, 4> pv{p0 / sum, p1 / sum, p2 / sum, p3 / sum};
-                    auto counts = multinomial(curr.m_count, pv);
+                    auto counts = multinomial(curr.m_count, pv, ++seed);
                     auto children = curr.m_directional.split();
                     queue.emplace(curr.m_spatial.min, curr.m_spatial.max, children[0][0], children[0][1], children[0][2], curr.m_triID + "0", counts[0]);
                     queue.emplace(curr.m_spatial.min, curr.m_spatial.max, children[1][0], children[1][1], children[1][2], curr.m_triID + "1", counts[1]);
@@ -356,10 +358,6 @@ class DiscreteMicrofacetDistribution
         Float sinPhiM, cosPhiM;
         Float alphaSqr;
 
-        // scaled roughness
-        Float alphaU = 3.0f * m_alphaU;
-        Float alphaV = 3.0f * m_alphaV;
-
         switch (m_type)
         {
         case EBeckmann:
@@ -370,17 +368,17 @@ class DiscreteMicrofacetDistribution
                 /* Sample phi component (isotropic case) */
                 math::sincos((2.0f * M_PI) * sample.y, &sinPhiM, &cosPhiM);
 
-                alphaSqr = alphaU * alphaU;
+                alphaSqr = m_alphaU * m_alphaU;
             }
             else
             {
                 /* Sample phi component (anisotropic case) */
-                Float phiM = std::atan(alphaV / alphaU *
+                Float phiM = std::atan(m_alphaV / m_alphaU *
                                        std::tan(M_PI + 2 * M_PI * sample.y)) +
                              M_PI * std::floor(2 * sample.y + 0.5f);
                 math::sincos(phiM, &sinPhiM, &cosPhiM);
 
-                Float cosSc = cosPhiM / alphaU, sinSc = sinPhiM / alphaV;
+                Float cosSc = cosPhiM / m_alphaU, sinSc = sinPhiM / m_alphaV;
                 alphaSqr = 1.0f / (cosSc * cosSc + sinSc * sinSc);
             }
 
@@ -389,7 +387,7 @@ class DiscreteMicrofacetDistribution
             cosThetaM = 1.0f / std::sqrt(1.0f + tanThetaMSqr);
 
             /* Compute probability density of the sampled position */
-            pdf = (1.0f - sample.x) / (M_PI * alphaU * alphaV * cosThetaM * cosThetaM * cosThetaM);
+            pdf = (1.0f - sample.x) / (M_PI * m_alphaU * m_alphaV * cosThetaM * cosThetaM * cosThetaM);
         }
         break;
 

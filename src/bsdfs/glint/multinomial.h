@@ -20,11 +20,10 @@ inline T sum(std::array<T, N> &ar)
 }
 
 template <std::size_t N>
-std::array<int, N> multinomial(int n, std::array<float, N> &pvals)
+std::array<int, N> multinomial(int n, std::array<float, N> &pvals, unsigned int seed)
 {
-    static unsigned int seed = 0;
     boost::mt19937 rng;
-    rng.seed(++seed);
+    rng.seed(seed);
     std::array<int, N> sample;
     sample.fill(0);
     try
