@@ -433,6 +433,12 @@ class Glittery : public BSDF
                 m_alphaV = static_cast<Texture *>(child);
             else if (name == "specularReflectance")
                 m_specularReflectance = static_cast<Texture *>(child);
+            else if (name == "height")
+                m_height = static_cast<Texture *>(child);
+            else if (name == "heightRange")
+                m_heightRange = static_cast<Texture *>(child);
+            else if (name == "k")
+                m_k = static_cast<Texture *>(child);
             else
                 BSDF::addChild(name, child);
         }
