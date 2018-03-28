@@ -77,7 +77,8 @@ class Glittery : public BSDF
         m_height = new ConstantSpectrumTexture(
             props.getSpectrum("height", Spectrum(400.0f)));
 
-        m_heightRange = props.getFloat("heightRange", 20.0f);
+        m_heightRange = new ConstantSpectrumTexture(
+            props.getSpectrum("heightRange", Spectrum(20.0f)));
 
         Float extEta = lookupIOR(props, "extEta", "air");
         m_eta1 = Spectrum(extEta);
@@ -209,6 +210,7 @@ class Glittery : public BSDF
 
         /* Iridescent Fresnel factor */
         const Spectrum h = m_height->eval(bRec.its);
+        const Spectrum hr = m_heightRange->eval(bRec.its);
         const Spectrum k = m_k->eval(bRec.its);
 #if SPECTRUM_SAMPLES == 3
         IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit);
@@ -219,7 +221,7 @@ class Glittery : public BSDF
 #endif
 
         Spectrum mean, variance;
-        std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, H), params, h[0] - m_heightRange, h[0] + m_heightRange);
+        std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, H), params, h[0] - hr[0], h[0] + hr[0]);
         // SLog(EInfo, "mean: %f, %f, %f", mean[0], mean[1], mean[2]);
         // SLog(EInfo, "var: %.16f, %.16f, %.16f", variance[0], variance[1], variance[2]);
 
@@ -307,6 +309,7 @@ class Glittery : public BSDF
 
         // Iridescent F
         const Spectrum h = m_height->eval(bRec.its);
+        const Spectrum hr = m_heightRange->eval(bRec.its);
         const Spectrum k = m_k->eval(bRec.its);
 #if SPECTRUM_SAMPLES == 3
         IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit);
@@ -317,7 +320,7 @@ class Glittery : public BSDF
 #endif
 
         Spectrum mean, variance;
-        std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, m), params, h[0] - m_heightRange, h[0] + m_heightRange);
+        std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, m), params, h[0] - hr[0], h[0] + hr[0]);
 
         Float pixelArea;
         Float D;
@@ -379,6 +382,7 @@ class Glittery : public BSDF
 
         // Iridescent F
         const Spectrum h = m_height->eval(bRec.its);
+        const Spectrum hr = m_heightRange->eval(bRec.its);
         const Spectrum k = m_k->eval(bRec.its);
 #if SPECTRUM_SAMPLES == 3
         IridescenceParams params(h, m_eta1, m_eta2, m_eta, k, m_wavelengths, m_spectralAntialiasing, m_useGaussianFit);
@@ -389,7 +393,7 @@ class Glittery : public BSDF
 #endif
 
         Spectrum mean, variance;
-        std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, m), params, h[0] - m_heightRange, h[0] + m_heightRange);
+        std::tie(mean, variance) = IridescenceMean(dot(bRec.wi, m), params, h[0] - hr[0], h[0] + hr[0]);
 
         Float pixelArea;
         Float D;
@@ -479,7 +483,7 @@ class Glittery : public BSDF
     Spectrum m_wavelengths;
 
     // Thickness(nm) range of thin-film layer
-    Float m_heightRange;
+    ref<Texture> m_heightRange;
 
     bool m_spectralAntialiasing;
     bool m_useGaussianFit;
