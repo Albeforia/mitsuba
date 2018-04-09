@@ -135,6 +135,12 @@ const Float _pos[3] = {1.6810e+06, 1.7953e+06, 2.2084e+06};
 // const Float _var[3] = {4.3278e+09, 9.3046e+09, 6.6121e+09};
 const Float _var[3] = {8.6556e+09, 1.8609e+10, 1.3224e+10};
 
+const Float _valX2 = 6.8922e-14;
+const Float _posX2 = 2.2399e+06;
+const Float _varX2 = 9.0564e+09;
+
+const Float _normalY = 1.0685e-7;
+
 /* Tabulated version of the Fourier Transforms of the normalized XYZ
  * Arrays are defined at the end of the file. For each profile, we
  * provide the real and imaginary part (with 'r' of 'i' prefix).
@@ -162,10 +168,10 @@ inline Spectrum evalSensitivity(Spectrum OPD, Spectrum shift, bool useGaussianFi
 
             Spectrum xyz = val * sqrt(2 * M_PI * var) * cos(pos * phase + shift) *
                            exp(-phase * phase * var / 2);
-            xyz[0] += 6.8922e-14 * std::sqrt(2 * M_PI * 9.0564e+09) *
-                      std::cos(2.2399e+06 * phase[0] + shift[0]) *
-                      std::exp(-9.0564e+09 * phase[0] * phase[0] / 2);
-            return xyz / 1.0685e-7;
+            xyz[0] += _valX2 * std::sqrt(2 * M_PI * _varX2) *
+                      std::cos(_posX2 * phase[0] + shift[0]) *
+                      std::exp(-_varX2 * phase[0] * phase[0] / 2);
+            return xyz / _normalY;
       }
       else
       {
@@ -219,7 +225,7 @@ inline Spectrum evalSensitivityMean(int m, Spectrum tao, Spectrum shift, Float m
       pos.fromLinearRGB(_pos[0], _pos[1], _pos[2]);
       var.fromLinearRGB(_var[0], _var[1], _var[2]);
 
-      auto A = val * sqrt(2 * M_PI * var) / 1.0685e-7;      // == 1 for Y and Z
+      auto A = val * sqrt(2 * M_PI * var) / _normalY;      // == 1 for Y and Z
       auto B = 2 * M_PI * m * tao * pos;
       auto C = M_PI * m * tao;
       C *= 2 * C * var;
@@ -237,11 +243,11 @@ inline Spectrum evalSensitivityMean(int m, Spectrum tao, Spectrum shift, Float m
       auto res = integrate(maxHeight*1.0e-9) - integrate(minHeight*1.0e-9);
 
       // second part of x
-      auto Ax = 6.8922e-14 * std::sqrt(2 * M_PI * 9.0564e+09) / 1.0685e-7;
-      auto Bx = 2 * M_PI * m * tao[0] * 2.2399e+06;
+      auto Ax = _valX2 * std::sqrt(2 * M_PI * _varX2) / _normalY;
+      auto Bx = 2 * M_PI * m * tao[0] * _posX2;
       auto Cx = M_PI * m * tao[0];
-      Cx *= 2 * Cx * 9.0564e+09;
-      auto CB2x = 9.0564e+09 / (2*sqr(2.2399e+06));
+      Cx *= 2 * Cx * _varX2;
+      auto CB2x = _varX2 / (2*sqr(_posX2));
 
       auto integrateX = [&Ax, &Bx, &Cx, &CB2x, &shift] (Float d) {
             auto sinv = std::sin(Bx*d + shift[0]);
@@ -260,6 +266,52 @@ inline Spectrum evalSensitivityMean(int m, Spectrum tao, Spectrum shift, Float m
       return res;
 }
 
+inline Float evalSensitivityCross(Spectrum tao, Spectrum shift, Float minHeight, Float maxHeight)
+{
+      Spectrum val, pos, var;
+      val.fromLinearRGB(_val[0], _val[1], _val[2]);
+      pos.fromLinearRGB(_pos[0], _pos[1], _pos[2]);
+      var.fromLinearRGB(_var[0], _var[1], _var[2]);
+
+      auto varx = var[0] + _varX2;
+      auto posx1 = pos[0] + _posX2;
+      auto posx2 = pos[0] - _posX2;
+
+      auto Ax1 = val[0] * std::sqrt(2 * M_PI * var[0]) / _normalY;
+      auto Bx1 = 2 * M_PI * tao[0] * posx1;
+      auto Cx = M_PI * tao[0];
+      Cx *= 4 * Cx * varx;
+      auto CB2x1 = varx / sqr(posx1);
+
+      auto integrateX1 = [&Bx1, &Cx, &CB2x1, &shift](Float d) {
+            auto sinv = std::sin(Bx1 * d + 2 * shift[0]);
+            auto cosv = std::cos(Bx1 * d + 2 * shift[0]);
+            auto Cd2 = Cx * sqr(d);
+            auto cos_term = 2 * CB2x1 * d * cosv * (Cd2 - 6 * CB2x1 - 1);
+            auto sin_term = sinv * (1 + 2 * CB2x1 + 12 * sqr(CB2x1) + 0.5 * sqr(Cd2) - Cd2 - 6 * CB2x1 * Cd2) / Bx1;
+            return sin_term + cos_term;
+      };
+
+      auto res = integrateX1(maxHeight*1.0e-9) - integrateX1(minHeight*1.0e-9);
+
+      auto Ax2 = _valX2 * std::sqrt(2 * M_PI * _varX2) / _normalY;
+      auto Bx2 = 2 * M_PI * tao[0] * posx2;
+      auto CB2x2 = varx / sqr(posx2);
+
+      auto integrateX2 = [&Bx2, &Cx, &CB2x2, &shift](Float d) {
+            auto sinv = std::sin(Bx2 * d);
+            auto cosv = std::cos(Bx2 * d);
+            auto Cd2 = Cx * sqr(d);
+            auto cos_term = 2 * CB2x2 * d * cosv * (Cd2 - 6 * CB2x2 - 1);
+            auto sin_term = sinv * (1 + 2 * CB2x2 + 12 * sqr(CB2x2) + 0.5 * sqr(Cd2) - Cd2 - 6 * CB2x2 * Cd2) / Bx2;
+            return sin_term + cos_term;
+      };
+
+      res += integrateX2(maxHeight*1.0e-9) - integrateX2(minHeight*1.0e-9);
+
+      return Ax1*Ax2 * res;
+}
+
 inline Spectrum evalSensitivitySquare(Spectrum tao, Spectrum shift, Float minHeight, Float maxHeight)
 {
       // m == 1
@@ -269,7 +321,7 @@ inline Spectrum evalSensitivitySquare(Spectrum tao, Spectrum shift, Float minHei
       pos.fromLinearRGB(_pos[0], _pos[1], _pos[2]);
       var.fromLinearRGB(_var[0], _var[1], _var[2]);
 
-      auto A = 2 * M_PI * var * (val/1.0685e-7) * (val/1.0685e-7);
+      auto A = 2 * M_PI * var * (val/_normalY) * (val/_normalY);
       auto B = 2 * M_PI * tao * pos;
       auto C = M_PI * tao;
       C *= 4 * C * var;
@@ -288,11 +340,11 @@ inline Spectrum evalSensitivitySquare(Spectrum tao, Spectrum shift, Float minHei
       auto res = integrate(maxHeight*1.0e-9) - integrate(minHeight*1.0e-9);
 
       // second part of x
-      auto Ax = 2 * M_PI * 9.0564e+09 * (6.8922e-14/1.0685e-7) * (6.8922e-14/1.0685e-7);
-      auto Bx = 2 * M_PI * tao[0] * 2.2399e+06;
+      auto Ax = 2 * M_PI * _varX2 * (_valX2/_normalY) * (_valX2/_normalY);
+      auto Bx = 2 * M_PI * tao[0] * _posX2;
       auto Cx = M_PI * tao[0];
-      Cx *= 4 * Cx * 9.0564e+09;
-      auto CB2x = 9.0564e+09 / sqr(2.2399e+06);
+      Cx *= 4 * Cx * _varX2;
+      auto CB2x = _varX2 / sqr(_posX2);
 
       auto integrateX1 = [&Ax, &Bx, &Cx, &CB2x, &shift] (Float d) {
             auto sinv = std::sin(2*(Bx*d + shift[0]));
@@ -306,7 +358,8 @@ inline Spectrum evalSensitivitySquare(Spectrum tao, Spectrum shift, Float minHei
 
       res[0] += integrateX1(maxHeight*1.0e-9) - integrateX1(minHeight*1.0e-9);
 
-      // ignore cross term
+      // cross term
+      res[0] += evalSensitivityCross(tao, shift, minHeight, maxHeight);
 
       // Multiply P(d)
       res *= 1e9 / (maxHeight - minHeight);
