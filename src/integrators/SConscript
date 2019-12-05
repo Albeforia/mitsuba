@@ -5,6 +5,7 @@ plugins += env.SharedLibrary('direct', ['direct/direct.cpp'])
 plugins += env.SharedLibrary('path', ['path/path.cpp'])
 plugins += env.SharedLibrary('volpath', ['path/volpath.cpp'])
 plugins += env.SharedLibrary('volpath_simple', ['path/volpath_simple.cpp'])
+plugins += env.SharedLibrary('volsingle', ['path/volsingle.cpp'])
 plugins += env.SharedLibrary('ptracer', ['ptracer/ptracer.cpp', 'ptracer/ptracer_proc.cpp'])
 
 # Photon mapping-based techniques
