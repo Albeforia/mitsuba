@@ -37,60 +37,54 @@ public:
 		*/
 		while (rRec.depth <= m_maxDepth || m_maxDepth < 0)
 		{
-			if (rRec.medium)
+			if (!its.isValid())
 			{
-				//
+				/* If no intersection could be found, possibly return
+					   attenuated radiance from a background luminaire */
+				if ((rRec.type & RadianceQueryRecord::EEmittedRadiance) && !m_hideEmitters)
+				{
+					Spectrum value = Tr * scene->evalEnvironment(ray);
+					if (rRec.medium)
+						value *= rRec.medium->evalTransmittance(ray);
+					Li += value;
+				}
+				break;
+			}
+
+			/* Possibly include emitted radiance if requested */
+			if (its.isEmitter() && (rRec.type & RadianceQueryRecord::EEmittedRadiance) && !m_hideEmitters)
+				Li += Tr * its.Le(-ray.d);
+
+			/* If 'strictNormals'=true, the geometric and shading normals
+				   must classify the incident direction to the same side */
+			if (m_strictNormals && dot(ray.d, its.geoFrame.n) * Frame::cosTheta(its.wi) >= 0)
+				break;
+
+			const BSDF *bsdf = its.getBSDF(ray);
+			if (!(its.getBSDF()->getType() & BSDF::ENull))
+			{
+				Li += Tr * surfaceDirect(ray, bsdf, rRec);
+				break;
 			}
 			else
 			{
-				if (!its.isValid())
+				/* Hit a medium boundary ? */
+				if (its.isMediumTransition())
 				{
-					/* If no intersection could be found, possibly return
-					   attenuated radiance from a background luminaire */
-					if ((rRec.type & RadianceQueryRecord::EEmittedRadiance) && !m_hideEmitters)
-					{
-						Spectrum value = Tr * scene->evalEnvironment(ray);
-						if (rRec.medium)
-							value *= rRec.medium->evalTransmittance(ray);
-						Li += value;
-					}
-					break;
-				}
+					Assert(rRec.medium = its.getTargetMedium(ray.d));
 
-				/* Possibly include emitted radiance if requested */
-				if (its.isEmitter() && (rRec.type & RadianceQueryRecord::EEmittedRadiance) && !m_hideEmitters)
-					Li += Tr * its.Le(-ray.d);
-
-				/* If 'strictNormals'=true, the geometric and shading normals
-				   must classify the incident direction to the same side */
-				if (m_strictNormals && dot(ray.d, its.geoFrame.n) * Frame::cosTheta(its.wi) >= 0)
-					break;
-
-				const BSDF *bsdf = its.getBSDF(ray);
-				if (!(its.getBSDF()->getType() & BSDF::ENull))
-				{
-					Li += Tr * surfaceDirect(ray, bsdf, rRec);
-					break;
+					Ray ray2(its.p, ray.d, ray.time);
+					ray2.mint = 4.0f * Epsilon;
+					Li += rayMarchMedium(ray2, rRec, Tr);
 				}
 				else
 				{
-					/* Hit a medium boundary ? */
-					if (its.isMediumTransition())
-					{
-						Assert(rRec.medium = its.getTargetMedium(ray.d));
-
-						Ray ray2(its.p, ray.d, ray.time);
-						ray2.mint = 4.0f * Epsilon;
-						Li += rayMarchMedium(ray2, rRec, Tr);
-					}
-					else
-					{
-						SLog(EWarn, "Hit something that is neither surface nor medium boundary?");
-						break;
-					}
+					SLog(EWarn, "Hit something that is neither surface nor medium boundary?");
+					break;
 				}
 			}
 
+			/* Note the use of rRec.depth is inconsistent with other integrators */
 			rRec.depth++;
 		}
 
@@ -113,8 +107,13 @@ public:
 		   BSDF has smooth (i.e. non-Dirac delta) component */
 		if (bsdf->getType() & BSDF::ESmooth)
 		{
-			/* Estimate the direct illumination if this is requested */
-			Spectrum value = scene->sampleEmitterDirect(dRec, rRec.nextSample2D());
+			DirectSamplingRecord dRec(its);
+			int maxInteractions = m_maxDepth - rRec.depth - 1;
+
+			Spectrum value = scene->sampleAttenuatedEmitterDirect(
+				dRec, its, rRec.medium, maxInteractions,
+				rRec.nextSample2D(), rRec.sampler);
+
 			if (!value.isZero())
 			{
 				const Emitter *emitter = static_cast<const Emitter *>(dRec.object);
@@ -208,6 +207,10 @@ public:
 			Tr = Spectrum(1.0f);
 			return inscattering;
 		}
+
+		MediumSamplingRecord mRec;
+		const PhaseFunction *phase = rRec.medium->getPhaseFunction();
+
 		Float mint = ray.mint;
 		Float maxt = its.t;
 
@@ -224,7 +227,7 @@ public:
 			Tr *= rRec.medium->evalTransmittance(Ray(ray, tPrev, tCurr), rRec.sampler);
 
 			/* Possibly terminate ray marching if transmittance is small */
-			if (Tr.average() < 1e-3)
+			if (Tr.max() < 1e-3)
 			{
 				const Float continueProb = 0.5f;
 				if (rRec.nextSample1D() > continueProb)
@@ -235,13 +238,39 @@ public:
 				Tr /= continueProb;
 			}
 
+			/* Calculate in-scattering */
+			mRec.transmittance = Tr;
+			mRec.medium = rRec.medium;
+			mRec.time = ray.time;
+			mRec.t = tCurr;
+			mRec.p = ray(mRec.t);
+			if (mRec.medium->isHomogeneous())
+			{
+				mRec.sigmaA = mRec.medium->getSigmaA();
+				mRec.sigmaS = mRec.medium->getSigmaS();
+			}
+			else
+			{
+				/* code */
+			}
+
+			DirectSamplingRecord dRec(mRec.p, mRec.time);
+			int maxInteractions = m_maxDepth - rRec.depth - 1;
+
+			Spectrum value = scene->sampleAttenuatedEmitterDirect(
+				dRec, rRec.medium, maxInteractions,
+				rRec.nextSample2D(), rRec.sampler);
+
+			if (!value.isZero())
+				inscattering += Tr * mRec.sigmaS * value * phase->eval(PhaseFunctionSamplingRecord(mRec, -ray.d, dRec.d));
+
 			tPrev = tCurr;
 		}
 
+		const Medium *oldMedium = rRec.medium;
 		rRec.medium = its.getTargetMedium(ray.d);
-		/* For now, connected media are not allowed. Therefore
-		   we should be either heading out of the medium or
-		   hitting a surface */
+		/* For now, connected media (i.e. shared boundary) are not allowed.
+		   Therefore we should be either heading out of the medium or hitting a surface */
 		Assert(rRec.medium == nullptr);
 		if (its.isMediumTransition() && (its.getBSDF()->getType() & BSDF::ENull))
 		{
@@ -249,8 +278,13 @@ public:
 			ray2.mint = 4.0f * Epsilon;
 			scene->rayIntersect(ray2, its);
 		}
+		else
+		{
+			/* This is a point on surface but still in the medium */
+			rRec.medium = oldMedium;
+		}
 
-		return inscattering;
+		return inscattering * step;
 	}
 
 	inline Float miWeight(Float pdfA, Float pdfB) const
