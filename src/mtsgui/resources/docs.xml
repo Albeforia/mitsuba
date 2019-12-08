@@ -237,6 +237,14 @@
 		</descr>
 	</plugin>
 
+	<plugin type="integrator" name="volsingle" readableName = "Volumetric path tracer (Ray marching)" show="true" className="SingleScatteringPathTracer" extends="MonteCarloIntegrator">
+		<descr>
+			This plugin provides a volumetric path tracer that uses ray-marching to
+			compute approximate solutions to the radiative transfer equation.
+			For now, multiple scattering is not implemented.
+		</descr>
+	</plugin>
+
 	<plugin type="integrator" name="ptracer" readableName="Adjoint particle tracer" show="true"
 			className="ParticleTracer" extends="ImageBasedIntegrator">
 	<descr>
