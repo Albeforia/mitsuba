@@ -75,7 +75,9 @@ static StatsCounter avgPathLength("Volumetric path tracer", "Average path length
  */
 class VolumetricPathTracer : public MonteCarloIntegrator {
 public:
-	VolumetricPathTracer(const Properties &props) : MonteCarloIntegrator(props) { }
+	VolumetricPathTracer(const Properties &props) : MonteCarloIntegrator(props) {
+		m_singleScattering = props.getBoolean("singleScattering", false);
+	}
 
 	/// Unserialize from a binary data stream
 	VolumetricPathTracer(Stream *stream, InstanceManager *manager)
@@ -89,6 +91,9 @@ public:
 		RayDifferential ray(r);
 		Spectrum Li(0.0f);
 		Float eta = 1.0f;
+
+		if (m_singleScattering)
+			rRec.type &= ~RadianceQueryRecord::EIndirectMediumRadiance;
 
 		/* Perform the first ray intersection (or ignore if the
 		   intersection has already been provided). */
@@ -447,6 +452,9 @@ public:
 	}
 
 	MTS_DECLARE_CLASS()
+
+private:
+	bool m_singleScattering;
 };
 
 MTS_IMPLEMENT_CLASS_S(VolumetricPathTracer, false, MonteCarloIntegrator)
